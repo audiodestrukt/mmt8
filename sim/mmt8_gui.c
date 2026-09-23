@@ -49,9 +49,12 @@ typedef struct {
     int col;          /* keyboard matrix column */
     int row;          /* keyboard matrix row */
     int pressed;
-    int has_led;      /* 0=none, 1=green LED, 2=red LED */
-    int led_bit;      /* which bit in led_data or led_control */
+    int led_src;      /* LED_NONE, LED_TRACK (led_data, active high) or LED_STATUS (status latch, active low) */
+    int led_bit;      /* bit number within that latch */
+    int led_red;      /* 1 = red LED (REC), else green */
 } button_t;
+
+enum { LED_NONE = 0, LED_TRACK = 1, LED_STATUS = 2 };
 
 /* ---- LED position relative to button ---- */
 #define LED_RADIUS 4
@@ -76,7 +79,7 @@ static int num_buttons;
 
 static void add_button(int x, int y, int w, int h,
                        const char *label, int col, int row,
-                       int has_led, int led_bit)
+                       int led_src, int led_bit, int led_red)
 {
     if (num_buttons >= MAX_BUTTONS) return;
     button_t *b = &buttons[num_buttons++];
@@ -85,17 +88,32 @@ static void add_button(int x, int y, int w, int h,
     b->col = col;
     b->row = row;
     b->pressed = 0;
-    b->has_led = has_led;
+    b->led_src = led_src;
     b->led_bit = led_bit;
+    b->led_red = led_red;
 }
 
 /*
- * Keyboard matrix mapping (initial best-guess from firmware analysis).
- * Column select via 0xFF06: bit 0..5 active-low.
- * Row read via P1: bits 0..7.
+ * Keyboard matrix mapping, determined empirically by pressing every
+ * column/row position in the headless simulator (--press C,R) and watching
+ * the firmware's LCD and LED latches respond:
  *
- * These assignments will need refinement by testing with the running firmware.
- * The mapping is organized by functional groups on the front panel.
+ *   col 0: <<  >>  ERASE  TRANS  PLAY  STOP  COPY  REC
+ *   col 1: track 1 .. track 8
+ *   col 2: TEMPO  -  +  ?  ?  ?  PAGE UP  PAGE DOWN
+ *   col 3: CLICK  6  7  8  9  0  MIDI CH  TAPE
+ *   col 4: CLOCK  1  2  3  4  5  SONG  MERGE
+ *   col 5: FILTER  ECHO  LOOP  QUANT  LENGTH  ?  ?  PART
+ *
+ * PAGE UP/DOWN come from the boot-time "erase all" check (ERASE + PAGE UP +
+ * PAGE DOWN held at power-on). EDIT and NAME have not been located yet: they
+ * do nothing visible on an empty part; (5,5) and (5,6) are the likely
+ * candidates and are wired to those positions provisionally.
+ *
+ * LEDs: the track LEDs are bits 0-7 of the LED data latch (0xFF02, active
+ * high). The mode/transport LEDs are in the status latch (0xFF04, active
+ * low): bit 0 PLAY, bit 1 REC, bit 2 PART, bit 3 EDIT (assumed), bit 4 SONG,
+ * bit 5 ECHO, bit 6 LOOP.
  */
 static void init_buttons(void)
 {
@@ -109,71 +127,75 @@ static void init_buttons(void)
     /* --- Row 1: Mode buttons (y=20) --- */
     int y = 20;
     int x = 260;
-    add_button(x, y, bw, bh, "PART",  0, 0, 1, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "EDIT",  0, 1, 1, 1);   x += bw + gap;
-    add_button(x, y, bw, bh, "SONG",  0, 2, 1, 2);   x += bw + gap;
-    add_button(x, y, bw, bh, "NAME",  0, 3, 0, 0);
+    add_button(x, y, bw, bh, "PART",  5, 7, LED_STATUS, 2, 0);  x += bw + gap;
+    add_button(x, y, bw, bh, "EDIT",  5, 5, LED_STATUS, 3, 0);  x += bw + gap;
+    add_button(x, y, bw, bh, "SONG",  4, 6, LED_STATUS, 4, 0);  x += bw + gap;
+    add_button(x, y, bw, bh, "NAME",  5, 6, LED_NONE,   0, 0);  x += bw + gap + 12;
+    add_button(x, y, bw, bh, "PG UP", 2, 6, LED_NONE,   0, 0);  x += bw + gap;
+    add_button(x, y, bw, bh, "PG DN", 2, 7, LED_NONE,   0, 0);
 
     /* --- Row 2: Function buttons (y=60) --- */
     y = 60;
     x = 260;
-    add_button(x, y, bw, bh, "CLICK",  0, 4, 0, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "COPY",   0, 5, 0, 0);   x += bw + gap;
-    add_button(x, y, bw, bh, "ERASE",  0, 6, 0, 0);   x += bw + gap;
-    add_button(x, y, bw, bh, "TEMPO",  0, 7, 0, 0);
+    add_button(x, y, bw, bh, "CLICK",  3, 0, LED_NONE, 0, 0);  x += bw + gap;
+    add_button(x, y, bw, bh, "COPY",   0, 6, LED_NONE, 0, 0);  x += bw + gap;
+    add_button(x, y, bw, bh, "ERASE",  0, 2, LED_NONE, 0, 0);  x += bw + gap;
+    add_button(x, y, bw, bh, "TEMPO",  2, 0, LED_NONE, 0, 0);
 
     /* --- Row 3: More functions (y=100) --- */
     y = 100;
     x = 20;
-    add_button(x, y, bw, bh, "LOOP",     1, 0, 1, 3);  x += bw + gap;
-    add_button(x, y, bw+12, bh, "ECHO",   1, 1, 1, 4);  x += bw + 12 + gap;
-    add_button(x, y, bw, bh, "LENGTH",   1, 2, 0, 0);   x += bw + gap;
-    add_button(x, y, bw, bh, "MERGE",    1, 3, 0, 0);
+    add_button(x, y, bw, bh, "LOOP",     5, 2, LED_STATUS, 6, 0);  x += bw + gap;
+    add_button(x, y, bw+12, bh, "ECHO",  5, 1, LED_STATUS, 5, 0);  x += bw + 12 + gap;
+    add_button(x, y, bw, bh, "LENGTH",   5, 4, LED_NONE, 0, 0);    x += bw + gap;
+    add_button(x, y, bw, bh, "MERGE",    4, 7, LED_NONE, 0, 0);
 
     /* --- Row 4: Even more functions (y=140) --- */
     y = 140;
     x = 20;
-    add_button(x, y, bw, bh, "QUANT",     1, 4, 0, 0);  x += bw + gap;
-    add_button(x, y, bw+4, bh, "TRANS",    1, 5, 0, 0);  x += bw + 4 + gap;
-    add_button(x, y, bw+4, bh, "FILTER",   1, 6, 0, 0);  x += bw + 4 + gap;
-    add_button(x, y, bw+4, bh, "MIDI CH",  1, 7, 0, 0);  x += bw + 4 + gap;
-    add_button(x, y, bw, bh, "CLOCK",     2, 0, 0, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "TAPE",      2, 1, 0, 0);
+    add_button(x, y, bw, bh, "QUANT",     5, 3, LED_NONE, 0, 0);  x += bw + gap;
+    add_button(x, y, bw+4, bh, "TRANS",   0, 3, LED_NONE, 0, 0);  x += bw + 4 + gap;
+    add_button(x, y, bw+4, bh, "FILTER",  5, 0, LED_NONE, 0, 0);  x += bw + 4 + gap;
+    add_button(x, y, bw+4, bh, "MIDI CH", 3, 6, LED_NONE, 0, 0);  x += bw + 4 + gap;
+    add_button(x, y, bw, bh, "CLOCK",     4, 0, LED_NONE, 0, 0);  x += bw + gap;
+    add_button(x, y, bw, bh, "TAPE",      3, 7, LED_NONE, 0, 0);
 
-    /* --- Track buttons with LEDs (y=200) --- */
+    /* --- Track buttons with LEDs (y=200): column 1, rows 0-7 --- */
     y = 200;
     x = 20;
     for (int i = 0; i < 8; i++) {
-        char *labels[] = {"1","2","3","4","5","6","7","8"};
-        add_button(x, y, tw, th, labels[i], 2+i/4, 2+(i%4), 1, i);
+        static const char *labels[] = {"1","2","3","4","5","6","7","8"};
+        add_button(x, y, tw, th, labels[i], 1, i, LED_TRACK, i, 0);
         x += tw + gap;
     }
 
     /* --- Numeric keypad (y=280) --- */
     y = 280;
     x = 20;
-    for (int i = 0; i < 10; i++) {
-        char *labels[] = {"0","1","2","3","4","5","6","7","8","9"};
-        /* Map digits across columns 3-5 */
-        int dcol = 3 + (i / 4);
-        int drow = i % 4;
-        add_button(x, y, nw, nh, labels[i], dcol, drow, 0, 0);
-        x += nw + gap;
+    {
+        static const char *labels[] = {"0","1","2","3","4","5","6","7","8","9"};
+        /* 0 = (3,5); 1-5 = column 4 rows 1-5; 6-9 = column 3 rows 1-4 */
+        static const int dcol[10] = {3, 4, 4, 4, 4, 4, 3, 3, 3, 3};
+        static const int drow[10] = {5, 1, 2, 3, 4, 5, 1, 2, 3, 4};
+        for (int i = 0; i < 10; i++) {
+            add_button(x, y, nw, nh, labels[i], dcol[i], drow[i], LED_NONE, 0, 0);
+            x += nw + gap;
+        }
     }
 
     /* --- +/- buttons --- */
     x += gap;
-    add_button(x, y, nw, nh, "+", 4, 4, 0, 0);  x += nw + gap;
-    add_button(x, y, nw, nh, "-", 4, 5, 0, 0);
+    add_button(x, y, nw, nh, "+", 2, 2, LED_NONE, 0, 0);  x += nw + gap;
+    add_button(x, y, nw, nh, "-", 2, 1, LED_NONE, 0, 0);
 
     /* --- Transport buttons (y=330) --- */
     y = 330;
     x = 20;
-    add_button(x, y, bw, bh, "<<",   5, 0, 0, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, ">>",   5, 1, 0, 0);  x += bw + gap + 20;
-    add_button(x, y, bw, bh, "PLAY", 5, 2, 1, 5);   x += bw + gap;
-    add_button(x, y, bw+8, bh, "STOP",  5, 3, 0, 0);  x += bw + 8 + gap;
-    add_button(x, y, bw, bh, "REC",  5, 4, 2, 6);
+    add_button(x, y, bw, bh, "<<",    0, 0, LED_NONE, 0, 0);    x += bw + gap;
+    add_button(x, y, bw, bh, ">>",    0, 1, LED_NONE, 0, 0);    x += bw + gap + 20;
+    add_button(x, y, bw, bh, "PLAY",  0, 4, LED_STATUS, 0, 0);  x += bw + gap;
+    add_button(x, y, bw+8, bh, "STOP", 0, 5, LED_NONE, 0, 0);   x += bw + 8 + gap;
+    add_button(x, y, bw, bh, "REC",   0, 7, LED_STATUS, 1, 1);
 }
 
 /* Find which button contains point (x,y) */
@@ -233,8 +255,7 @@ static void render_lcd(void)
 static void render_buttons(void)
 {
     uint8_t led_d = mmt8_get_led_data();
-    uint8_t led_c = mmt8_get_led_control();
-    (void)led_c;
+    uint8_t led_s = mmt8_get_status_latch();
 
     SDL_Color txt_color = {COL_TXT_R, COL_TXT_G, COL_TXT_B, 255};
 
@@ -268,12 +289,14 @@ static void render_buttons(void)
         }
 
         /* LED indicator */
-        if (b->has_led) {
+        if (b->led_src != LED_NONE) {
             int cx = b->rect.x + b->rect.w / 2;
             int cy = b->rect.y - LED_RADIUS - 3;
-            int on = (led_d >> b->led_bit) & 1;
+            int on = (b->led_src == LED_TRACK)
+                   ?  (led_d >> b->led_bit) & 1          /* active high */
+                   : !((led_s >> b->led_bit) & 1);       /* active low  */
 
-            if (b->has_led == 2) {
+            if (b->led_red) {
                 /* Red LED (REC) */
                 if (on)
                     SDL_SetRenderDrawColor(renderer, COL_LED_RED_R, COL_LED_RED_G, COL_LED_RED_B, 255);
@@ -319,6 +342,8 @@ int gui_init(void)
 
     renderer = SDL_CreateRenderer(window, -1,
         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!renderer)   /* e.g. no GPU, or SDL_VIDEODRIVER=dummy: fall back to software */
+        renderer = SDL_CreateRenderer(window, -1, 0);
     if (!renderer) {
         fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError());
         return -1;
@@ -387,6 +412,18 @@ void gui_render(struct em8051 *cpu)
     render_buttons();
 
     SDL_RenderPresent(renderer);
+}
+
+int gui_screenshot(const char *path)
+{
+    if (!renderer) return -1;
+    SDL_Surface *surf = SDL_CreateRGBSurfaceWithFormat(0, WIN_W, WIN_H, 32, SDL_PIXELFORMAT_ARGB8888);
+    if (!surf) return -1;
+    int rc = SDL_RenderReadPixels(renderer, NULL, SDL_PIXELFORMAT_ARGB8888, surf->pixels, surf->pitch);
+    if (rc == 0) rc = SDL_SaveBMP(surf, path);
+    SDL_FreeSurface(surf);
+    if (rc != 0) fprintf(stderr, "Screenshot failed: %s\n", SDL_GetError());
+    return rc;
 }
 
 void gui_shutdown(void)

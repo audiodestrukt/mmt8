@@ -19,6 +19,70 @@ static lcd_state_t lcd;
 /* Each element is a bitmask of pressed rows for that column */
 static uint8_t key_matrix[6];
 
+/* ---- UART ---- */
+#define UART_FIFO_SIZE 4096
+typedef struct {
+    uint8_t  buf[UART_FIFO_SIZE];
+    unsigned head, tail;           /* push at head, pop at tail */
+} fifo_t;
+
+static fifo_t   uart_rx_fifo;     /* host -> firmware */
+static fifo_t   uart_tx_fifo;     /* firmware -> host */
+static int      uart_tx_cycles;   /* cycles left in the byte being sent, 0 = idle */
+static uint8_t  uart_tx_shift;    /* byte being sent */
+static int      uart_rx_cycles;   /* cycles left in the byte being received */
+static uint8_t  uart_rx_shift;    /* byte being received */
+static int      uart_rx_holding;  /* byte fully received, waiting for RI to clear */
+static uint8_t  uart_rx_sbuf;     /* receive-side SBUF (separate from TX SBUF) */
+static mmt8_uart_stats_t uart_stats;
+
+static int fifo_push(fifo_t *f, uint8_t b)
+{
+    unsigned next = (f->head + 1) % UART_FIFO_SIZE;
+    if (next == f->tail)
+        return -1;
+    f->buf[f->head] = b;
+    f->head = next;
+    return 0;
+}
+
+static int fifo_pop(fifo_t *f, uint8_t *b)
+{
+    if (f->head == f->tail)
+        return 0;
+    *b = f->buf[f->tail];
+    f->tail = (f->tail + 1) % UART_FIFO_SIZE;
+    return 1;
+}
+
+/* SBUF read: the firmware reads the receive register (never its own TX byte). */
+static uint8_t uart_sbuf_read(struct em8051 *cpu, uint8_t reg)
+{
+    (void)cpu; (void)reg;
+    uart_stats.sbuf_reads++;
+    return uart_rx_sbuf;
+}
+
+/* SBUF write: start transmitting. emu8051 has already stored the value. */
+static void uart_sbuf_write(struct em8051 *cpu, uint8_t reg)
+{
+    (void)reg;
+    uart_tx_shift  = cpu->mSFR[REG_SBUF];
+    uart_tx_cycles = MMT8_UART_BYTE_CYCLES;
+}
+
+/* SCON write (including SETB/CLR on TI/RI): the 8051 serial interrupt is
+ * level-sensitive on TI|RI, but emu8051 models it as an edge flag. Re-arm the
+ * flag whenever either bit is left set, so e.g. the firmware's software
+ * "SETB TI" kick-start, and an ISR that clears RI while TI is pending, both
+ * behave as on real hardware. */
+static void uart_scon_write(struct em8051 *cpu, uint8_t reg)
+{
+    (void)reg;
+    if (cpu->mSFR[REG_SCON] & (SCONMASK_TI | SCONMASK_RI))
+        cpu->serial_interrupt_trigger = 1;
+}
+
 /* ---- LCD helpers ---- */
 
 static void lcd_write_command(uint8_t cmd)
@@ -88,13 +152,75 @@ void mmt8_hw_init(void)
     lcd.entry_increment = 1;
 
     memset(key_matrix, 0, sizeof(key_matrix));
+
+    memset(&uart_rx_fifo, 0, sizeof(uart_rx_fifo));
+    memset(&uart_tx_fifo, 0, sizeof(uart_tx_fifo));
+    uart_tx_cycles = 0;
+    uart_rx_cycles = 0;
+    uart_rx_holding = 0;
+    uart_rx_sbuf = 0;
+    memset(&uart_stats, 0, sizeof(uart_stats));
 }
 
 void mmt8_hw_install(struct em8051 *cpu)
 {
     cpu->xread = mmt8_xdata_read;
     cpu->xwrite = mmt8_xdata_write;
-    cpu->sfrread[REG_P1] = mmt8_p1_read;
+    cpu->sfrread[REG_P1]    = mmt8_p1_read;
+    cpu->sfrread[REG_SBUF]  = uart_sbuf_read;
+    cpu->sfrwrite[REG_SBUF] = uart_sbuf_write;
+    cpu->sfrwrite[REG_SCON] = uart_scon_write;
+}
+
+void mmt8_hw_tick(struct em8051 *cpu)
+{
+    /* Transmit side */
+    if (uart_tx_cycles > 0 && --uart_tx_cycles == 0) {
+        fifo_push(&uart_tx_fifo, uart_tx_shift);
+        uart_stats.tx_bytes++;
+        cpu->mSFR[REG_SCON] |= SCONMASK_TI;
+        cpu->serial_interrupt_trigger = 1;
+    }
+
+    /* Receive side: shift in the next byte if the line is idle */
+    if (uart_rx_cycles > 0) {
+        if (--uart_rx_cycles == 0)
+            uart_rx_holding = 1;
+    } else if (!uart_rx_holding && fifo_pop(&uart_rx_fifo, &uart_rx_shift)) {
+        uart_rx_cycles = MMT8_UART_BYTE_CYCLES;
+    }
+
+    /* Deliver a completed byte once the firmware has consumed the previous one.
+     * (Real hardware would drop it if RI were still set; holding it is a little
+     * more forgiving and never matters when the ISR keeps up.) */
+    if (uart_rx_holding &&
+        (cpu->mSFR[REG_SCON] & SCONMASK_REN) &&
+        !(cpu->mSFR[REG_SCON] & SCONMASK_RI)) {
+        uart_rx_sbuf = uart_rx_shift;
+        uart_rx_holding = 0;
+        uart_stats.rx_bytes++;
+        cpu->mSFR[REG_SCON] |= SCONMASK_RI;
+        cpu->serial_interrupt_trigger = 1;
+    }
+}
+
+int mmt8_uart_rx_push(uint8_t b)
+{
+    if (fifo_push(&uart_rx_fifo, b) < 0) {
+        uart_stats.rx_dropped++;
+        return -1;
+    }
+    return 0;
+}
+
+int mmt8_uart_tx_pop(uint8_t *b)
+{
+    return fifo_pop(&uart_tx_fifo, b);
+}
+
+const mmt8_uart_stats_t *mmt8_uart_stats(void)
+{
+    return &uart_stats;
 }
 
 void mmt8_xdata_write(struct em8051 *cpu, uint16_t addr, uint8_t val)
@@ -146,6 +272,8 @@ uint8_t mmt8_p1_read(struct em8051 *cpu, uint8_t reg)
 lcd_state_t *mmt8_get_lcd(void) { return &lcd; }
 uint8_t mmt8_get_led_control(void) { return led_control; }
 uint8_t mmt8_get_led_data(void)    { return led_data; }
+uint8_t mmt8_get_status_latch(void) { return status_latch; }
+uint8_t mmt8_get_transport_state(void) { return transport_state; }
 
 void mmt8_key_press(int col, int row)
 {

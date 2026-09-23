@@ -134,8 +134,10 @@ static void add_solve_flags(struct em8051 * aCPU, uint8_t value1, uint8_t value2
     /* Carry: overflow from 7th bit to 8th bit */
     bool carry = ((value1 & 255) + (value2 & 255) + carryin) >> 8;
     
-    /* Auxiliary carry: overflow from 3th bit to 4th bit */
-    bool auxcarry = ((value1 & 7) + (value2 & 7) + carryin) >> 3;
+    /* Auxiliary carry: carry out of bit 3 into bit 4 (low nibble overflow).
+     * Patched: upstream used (x & 7) >> 3, i.e. the carry out of bit 2,
+     * which breaks DA A and therefore all of the firmware's BCD arithmetic. */
+    bool auxcarry = ((value1 & 15) + (value2 & 15) + carryin) >> 4;
     
     /* Overflow: overflow from 6th or 7th bit, but not both */
     bool overflow = (((value1 & 127) + (value2 & 127) + carryin) >> 7)^carry;
@@ -147,7 +149,8 @@ static void add_solve_flags(struct em8051 * aCPU, uint8_t value1, uint8_t value2
 static void sub_solve_flags(struct em8051 * aCPU, uint8_t value1, uint8_t value2, bool carryin)
 {
     bool carry = (((value1 & 255) - (value2 & 255) - carryin) >> 8) & 1;
-    bool auxcarry = (((value1 & 7) - (value2 & 7) - carryin) >> 3) & 1;
+    /* Patched: borrow into bit 3 (low nibble), upstream checked bit 2 */
+    bool auxcarry = (((value1 & 15) - (value2 & 15) - carryin) >> 4) & 1;
     bool overflow = ((((value1 & 127) - (value2 & 127) - carryin) >> 7) & 1)^carry;
     PSW = (PSW & ~(PSWMASK_C|PSWMASK_AC|PSWMASK_OV)) |
                           (carry << PSW_C) | (auxcarry << PSW_AC) | (overflow << PSW_OV);
@@ -842,8 +845,11 @@ static uint8_t mov_mem_mem(struct em8051 *aCPU)
 
 static uint8_t mov_mem_indir_rx(struct em8051 *aCPU)
 {
-    uint8_t address_from = OPERAND1;
-    uint8_t address_to = INDIR_RX_ADDRESS;
+    /* MOV direct,@Ri (0x86/0x87): direct <- @Ri.
+     * Patched: upstream had source and destination swapped, so e.g.
+     * "MOV DPL,@R0" clobbered IRAM[R0] with DPL instead of loading DPL. */
+    uint8_t address_from = INDIR_RX_ADDRESS;
+    uint8_t address_to = OPERAND1;
     uint8_t value = read_mem_indir(aCPU, address_from);
     write_mem(aCPU, address_to, value);
     PC += 2;
@@ -1293,7 +1299,9 @@ static uint8_t da_a(struct em8051 *aCPU)
         result += 0x6;
     if ((result & 0xff0) > 0x90 || (PSW & PSWMASK_C))
         result += 0x60;
-    if (result > 0x99)
+    /* Patched: C is set only on a carry out of bit 7 (upstream used > 0x99,
+     * which also flagged the invalid-BCD inputs 0x9A-0x9F). C is never cleared. */
+    if (result > 0xff)
         PSW |= PSWMASK_C;
     ACC = result;
 
@@ -1335,8 +1343,11 @@ static uint8_t xchd_a_indir_rx(struct em8051 *aCPU)
 {
     uint8_t address = INDIR_RX_ADDRESS;
     uint8_t value = read_mem_indir(aCPU, address);
+    /* Patched: upstream read ACC's low nibble after it had already been
+     * replaced, so the memory byte was never actually changed. */
+    uint8_t acc_lo = ACC & 0x0f;
     ACC = (ACC & 0xf0) | (value & 0x0f);
-    value = (value & 0xf0) | (ACC & 0x0f);
+    value = (value & 0xf0) | acc_lo;
     write_mem_indir(aCPU, address, value);
     PC++;
     return 0;

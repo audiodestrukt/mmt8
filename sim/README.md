@@ -2,77 +2,159 @@
 
 A hardware-level simulator for the **Alesis MMT-8 MIDI sequencer**. It runs the
 unmodified original firmware binary (`alesis_mmt8_v111.bin`) on an 8051 CPU
-emulator, with custom C code implementing the RAM, address decoding, and I/O
-multiplexing logic from the schematic. SDL2 provides a GUI showing the LCD
-display and clickable buttons matching the real hardware layout.
+emulator, with custom C code implementing the RAM, address decoding, I/O
+latches, LCD, keyboard matrix and UART from the schematic. SDL2 provides a GUI
+showing the LCD display, LEDs and clickable buttons; the MIDI IN and MIDI OUT
+jacks are exposed as ALSA sequencer ports, so the simulated MMT-8 can be wired
+to real keyboards, synths and DAWs like any other MIDI device.
 
 ## Status
 
-The simulator correctly loads the firmware and updates the LCD display. No MIDI I/O is implemented.
-Button matrix is not mapped correctly and LED positions and functions are not correct.
-Play/Record does not work. This is more of a WIP proof-of-concept that the unmodified firmware can
-indeed be loaded and run on simulated hardware.
+Working:
+
+- Firmware boots, runs its main loop and passes its own built-in diagnostics
+  (RAM, EPROM checksum, LED, MIDI loopback).
+- LCD, the eight track LEDs and the mode/transport LEDs.
+- Every front-panel button except EDIT and NAME has a verified matrix
+  position (see [Keyboard matrix](#keyboard-matrix-6-columns-x-8-rows)).
+- MIDI IN and MIDI OUT through ALSA. Real-time recording, playback, MIDI
+  clock/start/stop output and MIDI ECHO all work: record a phrase from a
+  keyboard, press STOP, press PLAY and it comes back out.
+- Headless mode with scripted button presses, an LCD change log and a raw MIDI
+  byte trace, for automated testing.
+
+Not implemented: tape sync in/out (the self-test's TAPE step reports an
+error), the footswitch input, the metronome click output, LCD custom
+characters, and the EDIT / NAME button positions.
 
 ## Building
 
 ### Dependencies
 
 - GCC
-- SDL2 development libraries (`libsdl2-dev`)
-- SDL2_ttf development libraries (`libsdl2-ttf-dev`)
+- SDL2 and SDL2_ttf development libraries
+- ALSA development library (`libasound2-dev`)
 
 On Debian/Ubuntu:
 
 ```
-sudo apt install libsdl2-dev libsdl2-ttf-dev
+sudo apt install libsdl2-dev libsdl2-ttf-dev libasound2-dev
 ```
 
 ### Compile
 
 ```
 cd sim
-make
+make          # builds ./mmt8sim
+make test     # builds and runs tests/cputest (emu8051 core self-check)
 ```
 
-This produces the `mmt8sim` executable.
-
-### Run
+## Running
 
 ```
 ./mmt8sim                              # uses ../firmware/alesis_mmt8_v111.bin
 ./mmt8sim /path/to/alesis_mmt8_v111.bin  # explicit path
 ```
 
-Press **Escape** or close the window to exit.
+Click the buttons with the mouse. Press **Escape** or close the window to exit.
+
+On startup the simulator registers an ALSA sequencer client named
+`MMT-8 Simulator` with two ports:
+
+| Port | Direction | Purpose |
+|------|-----------|---------|
+| `MIDI IN`  (port 0) | writable | the MMT-8's MIDI IN jack |
+| `MIDI OUT` (port 1) | readable | the MMT-8's MIDI OUT jack |
+
+Connect them with `aconnect`, `qjackctl`, Helvum, or any other ALSA/PipeWire
+patchbay. Port names must be given numerically to `aconnect`:
+
+```
+aconnect -l                                   # find client numbers
+aconnect "Keystation:0" "MMT-8 Simulator:0"   # keyboard -> MMT-8 MIDI IN
+aconnect "MMT-8 Simulator:1" "FLUID Synth:0"  # MMT-8 MIDI OUT -> synth
+```
+
+Or let the simulator connect for you:
+
+```
+./mmt8sim --midi-in 24:0 --midi-out 128:0
+```
+
+### A first session
+
+1. Connect a keyboard (or `aplaymidi`) to `MIDI IN` and a synth to `MIDI OUT`.
+2. Hold **REC**, press **PLAY**. The display shows `RECRDING PART 00` and a
+   five-beat count-down at 120 BPM, then `BEAT 001`, `BEAT 002`, ...
+3. Play something, then press **STOP**.
+4. Press **PLAY**. The recorded phrase plays back, with MIDI clock (`F8`),
+   Start (`FA`) and Stop (`FC`) on the output. **MIDI ECHO** merges incoming
+   MIDI to the output while recording.
+
+### Command-line options
+
+| Option | Effect |
+|--------|--------|
+| `-H`, `--headless` | run without the SDL window (still needs no display) |
+| `-n`, `--no-midi` | do not create the ALSA ports |
+| `-t`, `--midi-trace` | print every MIDI byte in/out to stderr |
+| `-l`, `--lcd-log` | print the LCD contents (and LED latches) whenever they change |
+| `-L`, `--loopback` | feed MIDI OUT straight back into MIDI IN as raw bytes |
+| `-i`, `--midi-in ADDR` | connect ALSA port `ADDR` to MIDI IN |
+| `-o`, `--midi-out ADDR` | connect MIDI OUT to ALSA port `ADDR` |
+| `-p`, `--press C,R[@MS]` | press key-matrix column `C` row `R`; optional start time in emulated ms (repeatable) |
+| `-d`, `--hold MS` | how long each scripted press is held (default 100) |
+| `-x`, `--exit-after MS` | exit after `MS` ms of emulated time and dump the LCD |
+
+Scripted presses without `@MS` start 1.5 s after boot and are spaced 400 ms
+apart. At exit, headless runs print the LCD and UART statistics (bytes
+received, transmitted, and how many the firmware's ISR actually consumed).
+
+### Firmware self-test
+
+Holding LOOP and QUANTIZE at power-on puts the real MMT-8 into its diagnostic
+mode. In the simulator:
+
+```
+./mmt8sim -H -n -L -l -p 5,2@0 -p 5,3@0 -d 3000 -x 12000
+```
+
+prints `ALL RAM OK`, `EPROM OK`, `LED TEST`, `MIDI IN/OUT OK` (thanks to
+`--loopback`) and finally `TAPE I/O ERROR`, because tape sync is not emulated.
+Holding ERASE, PAGE UP and PAGE DOWN at power-on (`-p 0,2@0 -p 2,6@0 -p 2,7@0`)
+performs the firmware's "clear all memory" procedure.
 
 ## Architecture
 
 ```
 sim/
-├── Makefile          Build system
-├── main.c            SDL init, main loop, timing, event dispatch
+├── Makefile          Build system (make, make test, make clean)
+├── main.c            CLI options, main loop, timing, MIDI pump, scripted presses
 ├── emu8051.h         emu8051 header (jarikomppa/emu8051, patched)
-├── core.c            emu8051 core
-├── opcodes.c         emu8051 opcodes (patched: MOVX @Ri uses P2)
+├── core.c            emu8051 core: timers, interrupts
+├── opcodes.c         emu8051 opcodes (patched, see below)
 ├── disasm.c          emu8051 disassembler
-├── mmt8_hw.h         Hardware emulation interface
-├── mmt8_hw.c         Address decode, RAM, I/O latches, keyboard matrix, LCD
-├── mmt8_gui.h        SDL GUI interface
-└── mmt8_gui.c        SDL rendering: LCD, buttons, LEDs, mouse input
+├── mmt8_hw.h/.c      Address decode, RAM, I/O latches, keyboard matrix, LCD, UART
+├── mmt8_gui.h/.c     SDL rendering: LCD, buttons, LEDs, mouse input
+├── mmt8_midi.h/.c    ALSA sequencer bridge (MIDI IN / MIDI OUT ports)
+└── tests/cputest.c   Differential test of the CPU core against a reference model
 ```
 
 ### Data flow
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│ main.c  –  main loop                                            │
-│   tick(&cpu)  →  emu8051 executes one machine cycle              │
-│                    ├─ CODE read  → cpu.mCodeMem (32 KB ROM)      │
-│                    ├─ XDATA r/w  → mmt8_hw callbacks             │
-│                    └─ SFR read   → mmt8_hw P1 callback           │
-│   SDL_PollEvent   →  mmt8_gui  →  key_matrix updates            │
-│   gui_render      →  reads LCD/LED state from mmt8_hw            │
-└──────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│ main.c  –  main loop (1 machine cycle per real microsecond)            │
+│   tick(&cpu)        →  emu8051 executes one machine cycle              │
+│                          ├─ CODE read   → cpu.mCodeMem (32 KB ROM)     │
+│                          ├─ XDATA r/w   → mmt8_hw (RAM, latches, LCD)  │
+│                          ├─ P1 read     → mmt8_hw keyboard rows        │
+│                          └─ SBUF/SCON   → mmt8_hw UART                 │
+│   mmt8_hw_tick()    →  UART shifts bytes in/out, raises TI/RI          │
+│   pump_midi()       →  UART FIFOs  ⇄  mmt8_midi  ⇄  ALSA sequencer     │
+│   SDL_PollEvent     →  mmt8_gui  →  key_matrix updates                 │
+│   gui_render        →  reads LCD/LED state from mmt8_hw                │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Design Details
@@ -80,33 +162,35 @@ sim/
 ### CPU Emulation (emu8051)
 
 The emulator core is [jarikomppa/emu8051](https://github.com/jarikomppa/emu8051),
-a cycle-accurate 8051 emulator in C. It provides function-pointer callbacks for
-external memory reads/writes and SFR register access, which is exactly what we
-need to intercept I/O.
+an 8051 emulator in C. It provides function-pointer callbacks for external
+memory reads/writes and SFR register access, which is exactly the seam needed
+to intercept I/O.
 
-**Critical patch — MOVX @R0/@R1 must use P2 as high address byte.**
-The 8051 specification says `MOVX A,@Ri` and `MOVX @Ri,A` use `P2:Ri` as the
-16-bit external data address (P2 = high byte, Ri = low byte). The MMT-8 firmware
-relies on this extensively for XDATA page selection — it writes a page number to
-P2 then uses `MOVX @R0` to access bytes within that page. The upstream emu8051
-only uses the 8-bit Ri value, so opcodes 0xE2, 0xE3, 0xF2, and 0xF3 are patched
-in `opcodes.c`:
+The upstream core needed several patches before the MMT-8 firmware ran
+correctly. Each is marked `Patched:` in the source:
 
-```c
-// Before (upstream): address = Ri only
-uint16_t address = INDIR_RX_ADDRESS;
+| Where | Bug | Symptom before the fix |
+|-------|-----|------------------------|
+| `opcodes.c` MOVX @Ri (0xE2/E3/F2/F3) | used only Ri as the address; the 8051 uses `P2:Ri` | firmware could not reach its XDATA pages and never booted |
+| `opcodes.c` MOV direct,@Ri (0x86/0x87) | source and destination swapped | `MOV DPL,@R0` overwrote the firmware's per-track pointer table; stopping a recording corrupted the part number and played phantom notes |
+| `opcodes.c` add/sub flags | auxiliary carry taken from bit 2 instead of bit 3 | wrong `DA A` results, i.e. wrong BCD arithmetic |
+| `opcodes.c` XCHD | read ACC after it had already been modified | memory nibble never written |
+| `opcodes.c` DA A | carry set for results 0x9A–0x9F | edge case only |
 
-// After (patched): address = P2:Ri
-uint16_t address = (aCPU->mSFR[REG_P2] << 8) | INDIR_RX_ADDRESS;
-```
+`tests/cputest.c` (`make test`) exercises the arithmetic, flag, BCD, MOV, XCH,
+logic and branch instructions with random operands against a reference model
+written from the MCS-51 manual, so regressions in the core are caught before
+they turn into mysterious firmware behaviour. The firmware's own RAM and EPROM
+self-tests are a second, independent check.
 
-Without this patch the firmware cannot access external RAM correctly and will not
-boot.
-
-**Firmware loading.** The 32 KB ROM image is loaded directly into `mCodeMem` via
-`fread()` (raw binary, not Intel HEX).
+**Firmware loading.** The 32 KB ROM image is loaded directly into `mCodeMem`
+via `fread()` (raw binary, not Intel HEX). XDATA is zero-filled at start; the
+firmware notices the missing RAM signature (`0x27 0xB5` at XDATA `0x02FE`) and
+runs its cold-start initialisation, exactly as a real unit with a dead memory
+battery would.
 
 **Memory map:**
+
 | Region | Size | Backing |
 |--------|------|---------|
 | CODE (27C256 EPROM) | 32 KB | `cpu.mCodeMem` |
@@ -115,19 +199,16 @@ boot.
 
 ### Hardware Emulation (`mmt8_hw.c`)
 
-This module emulates the address decoding, I/O latches, LCD controller, and
-keyboard scanner from the MMT-8 schematic.
-
 #### Address Decoding (HC138 U5)
 
-The HC138 decodes XDATA writes in the 0xFF00–0xFF1F range. Address bit A0
+The HC138 decodes XDATA accesses in the 0xFF00–0xFF1F range. Address bit A0
 serves as the LCD RS pin. Normal SRAM occupies 0x0000–0xFEFF.
 
 | Address  | Device       | Direction  | Function                     |
 |----------|-------------|------------|------------------------------|
-| `0xFF00` | U6 HC574    | Write      | LED control latch            |
-| `0xFF02` | U6 HC574    | Write      | LED data (track LEDs)        |
-| `0xFF04` | U7 HC574    | Read/Write | Status/mode output latch     |
+| `0xFF00` | HC574       | Write      | LED control latch (always 1 after boot) |
+| `0xFF02` | HC574       | Write      | Track LEDs 1–8 (bit n = track n+1, active high) |
+| `0xFF04` | HC574       | Read/Write | Mode/transport LED latch (active low, see below) |
 | `0xFF06` | U8 HC574    | Write      | Keyboard column select       |
 | `0xFF08` | LCD HD44780 | Write      | LCD command register (RS=0)  |
 | `0xFF09` | LCD HD44780 | Write      | LCD data register (RS=1)     |
@@ -136,6 +217,24 @@ serves as the LCD RS pin. Normal SRAM occupies 0x0000–0xFEFF.
 | `0xFF1A` |             | Read/Write | Click enable                 |
 
 Reads/writes below 0xFF00 pass through to `cpu.mExtData[]` (SRAM).
+
+#### LEDs
+
+The status latch at `0xFF04` is active low; the firmware clears a bit to
+light the LED:
+
+| Bit | LED |
+|-----|-----|
+| 0 | PLAY |
+| 1 | RECORD |
+| 2 | PART |
+| 3 | EDIT (assumed) |
+| 4 | SONG |
+| 5 | MIDI ECHO |
+| 6 | LOOP |
+
+The track LEDs come from `0xFF02` and are active high. The GUI reads both
+latches every frame (`mmt8_get_led_data()`, `mmt8_get_status_latch()`).
 
 #### HD44780 LCD Emulation
 
@@ -170,28 +269,60 @@ The keyboard scanner in the firmware:
 
 The column select pattern rotates through 0xFE, 0xFD, 0xFB, 0xF7, 0xEF, 0xDF
 (bits 0–5 active-low). A pre-check writes 0x80 to detect if any key is pressed
-before scanning individual columns.
+before scanning individual columns. The P1 SFR read callback ORs the pressed
+rows of every selected column into the result.
 
-The P1 SFR read callback implements this:
+The mapping was determined empirically, by pressing each of the 48 positions
+in the headless simulator (`--press C,R --hold 2000 --lcd-log`) and watching
+what the firmware did:
 
-```c
-uint8_t mmt8_p1_read(struct em8051 *cpu, uint8_t reg) {
-    uint8_t result = 0xFF;
-    for (int col = 0; col < 6; col++) {
-        if (!(key_column_sel & (1 << col)))
-            result &= ~key_matrix[col];
-    }
-    return result;
-}
-```
+| Col | Row 0 | Row 1 | Row 2 | Row 3 | Row 4 | Row 5 | Row 6 | Row 7 |
+|-----|-------|-------|-------|-------|-------|-------|-------|-------|
+| 0 | `<<` | `>>` | ERASE | TRANSPOSE | PLAY | STOP/CONT | COPY | RECORD |
+| 1 | Track 1 | Track 2 | Track 3 | Track 4 | Track 5 | Track 6 | Track 7 | Track 8 |
+| 2 | TEMPO | `-` | `+` | – | – | – | PAGE UP | PAGE DOWN |
+| 3 | CLICK | 6 | 7 | 8 | 9 | 0 | MIDI CHANNEL | TAPE |
+| 4 | CLOCK | 1 | 2 | 3 | 4 | 5 | SONG | MERGE |
+| 5 | MIDI FILTER | MIDI ECHO | LOOP | QUANTIZE | LENGTH | ? | ? | PART |
 
-Mouse clicks in the GUI set/clear bits in `key_matrix[]`, which the firmware
-reads during its normal scan cycle.
+PAGE UP / PAGE DOWN were identified from the boot-time "clear memory" check
+(ERASE + PAGE UP + PAGE DOWN). EDIT and NAME do nothing visible on an empty
+part and have not been pinned down; the GUI provisionally wires them to (5,5)
+and (5,6). The mapping lives in `mmt8_gui.c:init_buttons()`.
 
-**Button mapping.** The initial column/row assignments are best-guesses from
-firmware analysis. They may need refinement by testing with the running firmware
-— press each button and observe whether the firmware responds. The mapping is
-defined in `mmt8_gui.c:init_buttons()`.
+#### UART (MIDI)
+
+The 80C31 UART runs in mode 1 with Timer 1 as the baud generator
+(`TH1 = 0xFF` at 12 MHz gives 31.25 kbaud), so one 10-bit frame takes exactly
+320 machine cycles. The emulation replaces emu8051's stub serial port:
+
+- **TX**: a write to `SBUF` (SFR write callback) starts a 320-cycle
+  transmission. When it completes, the byte is queued for the host, `TI` is set
+  and the serial interrupt is raised. The firmware's ISR then loads the next
+  byte from its ring buffer in XDATA page 0.
+- **RX**: bytes from the host are shifted in one at a time (320 cycles each)
+  and loaded into a separate receive `SBUF` with `RI` set, provided `REN` is
+  set and the previous byte has been read. The `SBUF` read callback returns the
+  receive register, so TX and RX never clobber each other.
+- **Interrupt semantics**: the real serial interrupt is level-sensitive on
+  `TI | RI`, but emu8051 models it as an edge flag. A write callback on `SCON`
+  re-arms the flag whenever either bit is left set. This makes the firmware's
+  software `SETB TI` kick-start work, and lets an ISR that clears `RI` while
+  `TI` is pending be re-entered as on real hardware.
+
+`mmt8_hw_tick()` advances the UART once per machine cycle. FIFOs in both
+directions decouple it from the host.
+
+### MIDI Bridge (`mmt8_midi.c`)
+
+Uses the ALSA sequencer API with `snd_midi_event` to convert between raw UART
+bytes and sequencer events. Outgoing bytes are assembled into complete
+messages (so a synth never sees half a note-on); incoming events are decoded
+with running status disabled so the firmware always receives explicit status
+bytes. SysEx is passed through in both directions. The bridge is polled from
+the main loop every millisecond; `--loopback` bypasses it and feeds raw bytes
+straight back, which is what the firmware's MIDI self-test needs (it sends
+`0x00 0x55`, not a valid MIDI message).
 
 ### GUI (`mmt8_gui.c`)
 
@@ -201,20 +332,13 @@ The GUI renders an 820x500 window using SDL2 + SDL2_ttf:
   bordered rectangle. Monospace font, 2 lines x 16 characters.
 - **Buttons**: Rectangles with text labels arranged to approximate the MMT-8
   front panel. Darken on press.
-- **LEDs**: Small colored squares above buttons that have indicators. Green for
-  most functions, red for REC. LED state is read from the `led_data` latch
-  written by the firmware.
+- **LEDs**: Small squares above buttons that have indicators, driven by the
+  two LED latches described above. Red for REC, green otherwise.
 - **Font discovery**: Tries several common monospace font paths
   (DejaVu Sans Mono, Liberation Mono, FreeMono). Falls back to no text if none
   found.
-
-Button groups on the panel:
-- **Mode**: PART, EDIT, SONG, NAME (with LEDs on first three)
-- **Function**: CLICK, COPY, ERASE, TEMPO, LOOP, ECHO, LENGTH, MERGE, QUANT,
-  TRANS, FILTER, MIDI CH, CLOCK, TAPE
-- **Track**: 1–8 (with green LEDs)
-- **Numeric keypad**: 0–9, +, -
-- **Transport**: <<, >>, PLAY (LED), STOP, REC (red LED)
+- Falls back to SDL's software renderer when no accelerated one is available
+  (e.g. `SDL_VIDEODRIVER=dummy`).
 
 ### Main Loop (`main.c`)
 
@@ -222,46 +346,47 @@ The 80C31 runs at 12 MHz with a divide-by-12 clock, giving 1,000,000 machine
 cycles per second. Each `tick()` executes one machine cycle.
 
 The main loop:
-1. Measures real elapsed time via `SDL_GetPerformanceCounter()`
+1. Measures real elapsed time with `clock_gettime(CLOCK_MONOTONIC)`
 2. Converts to machine cycles (1 cycle = 1 microsecond)
 3. Caps at 50,000 cycles per frame to prevent spiral-of-death
-4. Executes that many `tick()` calls
-5. Polls SDL events (mouse clicks update `key_matrix`)
-6. Renders the GUI (~60 FPS with vsync + `SDL_Delay(1)`)
+4. Executes that many `tick()` + `mmt8_hw_tick()` calls
+5. Applies scripted key presses, pumps MIDI, logs the LCD if asked
+6. Polls SDL events and renders (GUI mode) or sleeps 1 ms (headless)
 
-A one-shot debug dump prints the LCD contents to stdout after 500,000 cycles to
-verify the firmware booted correctly.
+## Debugging the firmware with the simulator
 
-## Verification
-
-On first run, the LCD should display the startup screen:
+The headless options make it easy to script experiments and to see what the
+firmware is doing:
 
 ```
-* ALESIS MMT-8 *
-* VERSION 1.11 *
+# What does key (3,6) do? Hold it for 2 s and log the display.
+./mmt8sim -H -n -l -p 3,6 -d 2000 -x 2600
+
+# Record nothing for a few beats, stop, then look at the LENGTH page.
+./mmt8sim -H -n -l -p 0,7@1500 -p 0,4@1900 -p 0,5@4500 -p 5,4@5000 -d 600 -x 5400
+
+# Watch the raw MIDI bytes the firmware sends when PLAY is pressed.
+./mmt8sim -H -n -t -p 0,4 -x 3000
 ```
 
-After the splash delay, it transitions to:
-
-```
-SELECT PART  00
-" NO PART NAME "
-```
+For deeper problems, `main.c`'s cycle loop is the place to add a PC breakpoint
+or a watch on IRAM/XDATA (compare a few bytes after every `tick()` and print
+`cpu.mPC` when they change). That is how the `MOV direct,@Ri` bug was found:
+watching the per-track pointer table at IRAM 0x5D change on an instruction
+that should only have read it.
 
 ## Known Limitations and Future Work
 
-- **Keyboard matrix mapping** is approximate. The column/row assignments in
-  `init_buttons()` are educated guesses and will need trial-and-error refinement
-  with the running firmware to get each button mapped to its correct function.
-- **MIDI I/O** is not implemented. The UART (Timer 1 baud rate generator, SBUF)
-  could be connected to system MIDI ports in the future.
+- **EDIT and NAME** buttons are not yet located in the matrix.
+- **Tape sync, footswitch, click output** are not emulated; the self-test's
+  TAPE step fails.
 - **Timer/interrupt accuracy** — emu8051's built-in timer handling covers
-  Timer 0 (sequencer clock) and Timer 1 (MIDI baud rate), but EXT_INT0 (used
-  for external sync) may need manual triggering if external clock sync is
-  desired.
-- **LCD read-back** is not implemented (the firmware doesn't appear to read the
-  busy flag — it uses software delay loops instead).
-- **LED control register** (`0xFF00`) is captured but not yet fully decoded for
-  display. Currently only `led_data` (`0xFF02`) drives the GUI LEDs.
+  Timer 0 (sequencer clock) and Timer 1 (baud rate). EXT_INT0 is used by the
+  firmware for tape sync and is never triggered.
+- **LCD read-back** is not implemented (the firmware doesn't read the busy
+  flag — it uses software delay loops instead).
 - **No CGRAM** — custom character definitions are not implemented in the LCD
   emulation, so any custom glyphs will display as spaces.
+- **Battery-backed RAM** is not persisted between runs; every start is a cold
+  start with empty memory. Saving/restoring `cpu.mExtData` to a file would
+  give the simulator a memory battery.

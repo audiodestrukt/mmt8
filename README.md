@@ -1,6 +1,33 @@
 # Alesis MMT-8 Firmware Reverse Engineering
 
-Disassembly and decompilation of the Alesis MMT-8 MIDI sequencer firmware (v1.11) for the purpose of understanding the implementation and porting to another platform.
+Disassembly and decompilation of the Alesis MMT-8 MIDI sequencer firmware (v1.11) for the purpose of understanding the implementation and porting to another platform — plus a **hardware simulator that runs the original firmware as a working MIDI sequencer on Linux**.
+
+## Hardware Simulator
+
+[`sim/`](sim/) contains a hardware-level simulator: the unmodified 32 KB EPROM
+image runs on a patched [emu8051](https://github.com/jarikomppa/emu8051) core,
+with the MMT-8's RAM, address decoding, I/O latches, HD44780 LCD, keyboard
+matrix and UART emulated in C from the schematic. SDL2 draws the front panel
+(LCD, LEDs, clickable buttons) and the MIDI IN / MIDI OUT jacks appear as ALSA
+sequencer ports, so the simulated MMT-8 plugs into keyboards, synths and DAWs
+like any other MIDI device.
+
+```
+sudo apt install libsdl2-dev libsdl2-ttf-dev libasound2-dev
+cd sim && make && ./mmt8sim
+aconnect "MMT-8 Simulator:1" "FLUID Synth:0"     # MIDI OUT -> a synth
+aconnect "Keystation:0" "MMT-8 Simulator:0"      # a keyboard -> MIDI IN
+```
+
+Status: the firmware boots, passes its own RAM / EPROM / MIDI diagnostics,
+records and plays back MIDI, sends MIDI clock, and every button except EDIT and
+NAME is mapped. A headless mode with scripted button presses, an LCD change log
+and a MIDI byte trace makes it a convenient firmware-debugging rig as well.
+Getting this far required fixing four instruction-semantics bugs in the
+upstream emu8051 core (`MOV direct,@Ri` had its operands swapped, the auxiliary
+carry flag was wrong, `XCHD` never wrote memory, `DA A` carry), now covered by
+`make test`. See [`sim/README.md`](sim/README.md) for usage, options, the
+button matrix, the LED latches and the design notes.
 
 ## Hardware
 
@@ -41,14 +68,32 @@ The firmware uses P2 as a page selector for 256-byte pages in XDATA, accessed vi
 
 | Address | Label | Description |
 |---------|-------|-------------|
-| `0xFF00` | `IO_LED_CONTROL` | LED control output latch (HC574) |
-| `0xFF02` | `IO_LED_DATA` | LED data output |
-| `0xFF04` | `IO_STATUS_LATCH` | Status output latch (bit fields) |
+| `0xFF00` | `IO_LED_CONTROL` | LED control output latch (HC574); written once at boot |
+| `0xFF02` | `IO_LED_DATA` | Track LEDs 1–8 (bit n = track n+1, active high) |
+| `0xFF04` | `IO_STATUS_LATCH` | Mode/transport LED latch, active low: bit 0 PLAY, 1 RECORD, 2 PART, 3 EDIT (assumed), 4 SONG, 5 MIDI ECHO, 6 LOOP |
 | `0xFF06` | `IO_KEY_COLUMN_SEL` | Keyboard column select (matrix scan) |
 | `0xFF08` | `LCD_CMD_DATA` | HD44780 LCD command/data register |
 | `0xFF0E` | `IO_TRANSPORT_STATE` | Transport state (0=stopped, 1=playing, 2=recording) |
 | `0xFF0F` | `IO_BEAT_DIVIDER` | Beat divider setting |
 | `0xFF1A` | `IO_CLICK_ENABLE` | Metronome click enable |
+
+### Keyboard Matrix
+
+`scan_keyboard` drives six active-low column selects through the HC574 at
+`0xFF06` and reads the eight rows from P1. The button positions were verified
+by pressing every position in the simulator and watching the firmware respond:
+
+| Col | Row 0 | Row 1 | Row 2 | Row 3 | Row 4 | Row 5 | Row 6 | Row 7 |
+|-----|-------|-------|-------|-------|-------|-------|-------|-------|
+| 0 | `<<` | `>>` | ERASE | TRANSPOSE | PLAY | STOP/CONT | COPY | RECORD |
+| 1 | Track 1 | Track 2 | Track 3 | Track 4 | Track 5 | Track 6 | Track 7 | Track 8 |
+| 2 | TEMPO | `-` | `+` | – | – | – | PAGE UP | PAGE DOWN |
+| 3 | CLICK | 6 | 7 | 8 | 9 | 0 | MIDI CHANNEL | TAPE |
+| 4 | CLOCK | 1 | 2 | 3 | 4 | 5 | SONG | MERGE |
+| 5 | MIDI FILTER | MIDI ECHO | LOOP | QUANTIZE | LENGTH | ? | ? | PART |
+
+Power-on combinations checked by the reset code: ERASE + PAGE UP + PAGE DOWN
+clears all memory; LOOP + QUANTIZE enters the diagnostic self-test.
 
 ## Interrupt Vectors
 
@@ -132,8 +177,9 @@ update_display()
 | `0x6E` | `active_track_mask` | Bitmask of tracks with data |
 | `0x6F` | `track_bit_rotate` | Rotating bit for current track (1, 2, 4, ..., 128) |
 | `0x70` | `track_mute_mask` | Bitmask of muted tracks |
-| `0x71`/`0x72` | `seq_start_ptr` | Sequence data start pointer (lo/hi) |
-| `0x73`/`0x74` | `playback_ptr` | Current playback position pointer (lo/hi) |
+| `0x5D`–`0x6C` | `track_ptr_table` | Eight 16-bit pointers (lo/hi) to each track's data in the current part |
+| `0x71`/`0x72` | `seq_start_ptr` | Sequence data start pointer (lo/hi) in the playback engine; `0x71` also holds the selected track (1–8) outside it |
+| `0x73`/`0x74` | `playback_ptr` | Current playback position pointer (lo/hi); `0x74` is reused as the record count-down beat counter |
 | `0x75`/`0x76` | `record_ptr` | Current recording position pointer (hi/lo) |
 | `0x77`/`0x78` | `midi_clock` | MIDI clock tick counter (hi/lo) |
 | `0x7D` | `tick_counter` | Sequencer tick counter (incremented by ISRs) |
@@ -155,20 +201,27 @@ Key 8051-specific idioms that will need adaptation:
 
 6. **`undefined1` / `undefined2`** — These are Ghidra placeholder types for unresolved data types. Treat `undefined1` as `uint8_t` and `undefined2` as `uint16_t` (usually a CODE or XDATA address).
 
-## Generated Files
+## Repository Layout
 
 | File | Description |
 |------|-------------|
-| `alesis_mmt8_v111.bin` | Original firmware binary (32KB, 27C256 EPROM dump) |
-| `alesis_mmt8_v111.hex` | Intel HEX format conversion of the binary |
+| `sim/` | Hardware simulator (see above and `sim/README.md`) |
+| `firmware/alesis_mmt8_v111.bin` | Original firmware binary (32KB, 27C256 EPROM dump) |
+| `firmware/alesis_mmt8_v111.hex` | Intel HEX format conversion of the binary |
 | `alesis_mmt8_v111.asm` | dis51 assembly listing (29,208 lines) |
 | `mmt8_decompiled.c` | Annotated Ghidra decompiled C pseudocode (7,924 lines, 108 functions) |
 | `mmt8_functions.txt` | Function list with addresses, sizes, and callers |
 | `mmt8_callgraph.txt` | Call graph showing function relationships |
-| `ghidra_setup.py` | Ghidra Jython script: disassembly and function creation from entry points |
-| `ghidra_annotate.py` | Ghidra Jython script: function renames, IRAM labels, I/O labels, comments |
-| `ghidra_export.py` | Ghidra Jython script: exports decompiled C, function list, call graph |
+| `porting_plan.md` | Earlier plan for a source-level C port (superseded in practice by the simulator) |
+| `scripts/ghidra_setup.py` | Ghidra Jython script: disassembly and function creation from entry points |
+| `scripts/ghidra_annotate.py` | Ghidra Jython script: function renames, IRAM labels, I/O labels, comments |
+| `scripts/ghidra_export.py` | Ghidra Jython script: exports decompiled C, function list, call graph |
 | `ghidra_project/` | Ghidra project directory (open in Ghidra GUI for interactive analysis) |
+
+Note that some function and variable names in the decompiled output are early
+guesses; the simulator has since shown that e.g. `advance_playback_position`
+(`0x0824`) is really the end-of-recording finalisation and `sequence_data_seek`
+(`0x1A3B`) is a 16-bit block copy.
 
 ## Reference Documents
 
@@ -184,3 +237,4 @@ Key 8051-specific idioms that will need adaptation:
 - **dis51** — 8051 hex file disassembler (initial disassembly with code flow analysis)
 - **Ghidra 12.0** — Headless analysis, decompilation, and annotation via Jython scripts
 - **objcopy** — Binary to Intel HEX format conversion
+- **emu8051** (patched), **SDL2**, **ALSA** — the simulator
