@@ -65,6 +65,8 @@ typedef struct {
     unsigned long rx_dropped;    /* host bytes dropped because the FIFO was full */
     unsigned long tx_bytes;      /* bytes transmitted by the firmware */
     unsigned long sbuf_reads;    /* firmware reads of SBUF (ISR consumed a byte) */
+    unsigned long rx_msg_bytes;  /* rx bytes excluding MIDI real-time (clock etc.) */
+    unsigned long tx_msg_bytes;  /* tx bytes excluding MIDI real-time */
 } mmt8_uart_stats_t;
 
 const mmt8_uart_stats_t *mmt8_uart_stats(void);

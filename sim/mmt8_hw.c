@@ -178,6 +178,7 @@ void mmt8_hw_tick(struct em8051 *cpu)
     if (uart_tx_cycles > 0 && --uart_tx_cycles == 0) {
         fifo_push(&uart_tx_fifo, uart_tx_shift);
         uart_stats.tx_bytes++;
+        if (uart_tx_shift < 0xF8) uart_stats.tx_msg_bytes++;
         cpu->mSFR[REG_SCON] |= SCONMASK_TI;
         cpu->serial_interrupt_trigger = 1;
     }
@@ -199,6 +200,7 @@ void mmt8_hw_tick(struct em8051 *cpu)
         uart_rx_sbuf = uart_rx_shift;
         uart_rx_holding = 0;
         uart_stats.rx_bytes++;
+        if (uart_rx_sbuf < 0xF8) uart_stats.rx_msg_bytes++;
         cpu->mSFR[REG_SCON] |= SCONMASK_RI;
         cpu->serial_interrupt_trigger = 1;
     }

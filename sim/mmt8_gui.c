@@ -362,7 +362,9 @@ static void render_buttons(void)
     }
 }
 
-/* MIDI IN / OUT activity dots: lit for a moment after each byte moves. */
+/* MIDI IN / OUT activity dots: lit for a moment after each message byte moves.
+ * Real-time bytes (clock, start/stop, active sensing) are ignored, otherwise
+ * the OUT dot would flicker constantly whenever the sequencer runs. */
 #define MIDI_LED_HOLD_MS 120
 static void render_midi_activity(void)
 {
@@ -370,8 +372,8 @@ static void render_midi_activity(void)
     static Uint32 rx_until, tx_until;
     const mmt8_uart_stats_t *st = mmt8_uart_stats();
     Uint32 now = SDL_GetTicks();
-    if (st->rx_bytes != last_rx) { last_rx = st->rx_bytes; rx_until = now + MIDI_LED_HOLD_MS; }
-    if (st->tx_bytes != last_tx) { last_tx = st->tx_bytes; tx_until = now + MIDI_LED_HOLD_MS; }
+    if (st->rx_msg_bytes != last_rx) { last_rx = st->rx_msg_bytes; rx_until = now + MIDI_LED_HOLD_MS; }
+    if (st->tx_msg_bytes != last_tx) { last_tx = st->tx_msg_bytes; tx_until = now + MIDI_LED_HOLD_MS; }
 
     struct { const char *label; int on; int x; } dots[2] = {
         { "MIDI IN",  now < rx_until, 260 },
