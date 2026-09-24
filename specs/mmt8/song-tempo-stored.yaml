@@ -1,0 +1,57 @@
+spec: mmt8.song.tempo-stored
+title: In SONG mode TEMPO + RECORD stores the tempo in the song and selecting the song recalls it
+device: mmt8
+tags: [song, tempo]
+description: >
+  Manual 17: in song mode, pressing RECORD while holding TEMPO stores the
+  selected tempo into the current song (SONG TEMPO SAVED); the tempo changes
+  to the programmed tempo each time a different song is selected. Observed on
+  the firmware: selecting an empty song keeps the current tempo.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 17
+
+given: three-step-song
+
+steps:
+  - press: song
+  - wait: 100ms
+  - hold:
+      keys: tempo
+      then:
+        - wait: 100ms
+        - press: digit0
+        - press: digit9
+        - press: digit0
+        - wait: 100ms
+        - expect: {lcd.line1: TEMPO = 090}
+        - hold:
+            keys: rec
+            then:
+              - wait: 100ms
+              - expect: {lcd.line1: SONG TEMPO SAVED}
+  - wait: 100ms
+  - press: plus
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT SONG 01}
+  - hold:
+      keys: tempo
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: TEMPO = 090}          # an empty song keeps the current tempo
+        - press: digit1
+        - press: digit0
+        - press: digit0
+        - wait: 100ms
+        - expect: {lcd.line1: TEMPO = 100}          # temporary: not stored with RECORD
+  - wait: 100ms
+  - press: minus
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT SONG 00}
+  - hold:
+      keys: tempo
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: TEMPO = 090}          # song 00's stored tempo recalled

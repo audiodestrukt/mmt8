@@ -1,0 +1,45 @@
+spec: mmt8.song.select
+title: In SONG mode +/- and the keypad select songs; part-only buttons do nothing
+device: mmt8
+tags: [song]
+description: >
+  Manual 9.2: +/- select the next or previous song, wrapping between 99 and
+  00; two keypad digits select a song directly. Manual 4, 13 and 14: LENGTH,
+  MERGE and MIDI CHANNEL have no function in song mode.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 9.2, 4, 13 and 14
+
+given: ready
+
+steps:
+  - press: song
+  - wait: 100ms
+  - press: plus
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT SONG 01, lcd.line2: '"  EMPTY SONG  "'}
+  - press: minus
+  - press: minus
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT SONG 99}
+  - press: digit4
+  - press: digit2
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT SONG 42, lcd.cursor: 13}
+  - hold:
+      keys: length
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: SELECT SONG 42}
+  - hold:
+      keys: merge
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: SELECT SONG 42}
+  - hold:
+      keys: midich
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: SELECT SONG 42}

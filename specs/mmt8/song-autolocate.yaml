@@ -1,0 +1,34 @@
+spec: mmt8.song.autolocate
+title: Autolocate in SONG mode goes to a beat of the current step
+device: mmt8
+tags: [song, autolocate]
+description: >
+  Manual 26.2: as in part mode, hold >> and enter three digits to locate to
+  that beat of the current step; STOP/CONTINUE then plays from there.
+  Observed on the firmware: continuing from beat 2 of a 2-beat part shows
+  the next step at beat 1 within 100 ms, i.e. the located beat has already
+  been counted.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 26.2
+
+given: three-step-song
+
+steps:
+  - press: song
+  - wait: 100ms
+  - hold:
+      keys: ff
+      then:
+        - wait: 100ms
+        - press: digit0
+        - press: digit0
+        - press: digit2
+        - wait: 100ms
+        - expect: {lcd.line1: SONG 00 STEP 001, lcd.line2: PART 00 BEAT 002}
+  - wait: 100ms
+  - press: stop
+  - wait: 100ms
+  - expect: {led.play: true, lcd.line1: SONG 00 STEP 002, lcd.line2: PART 00 BEAT 001}

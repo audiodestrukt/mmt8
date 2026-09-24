@@ -378,9 +378,17 @@ What is covered:
 - The rest follow the manual: part selection, PLAY / STOP / CONTINUE, next
   part, recording with count-down, LENGTH, ERASE, COPY, LOOP, MIDI ECHO,
   NAME, EDIT, MIDI CHANNEL, TRANSPOSE, QUANTIZE, TEMPO and MIDI clock, CLICK
-  pages, MIDI FILTER, CLOCK pages and external MIDI start, autolocate, song
-  editing and playback, memory across a power cycle, the clear-memory combo
-  and the diagnostic self-test.
+  pages, MIDI FILTER, CLOCK pages and external MIDI start, autolocate, memory
+  across a power cycle, the clear-memory combo and the diagnostic self-test.
+- Song mode: selecting songs, step editing (insert, erase, blank step past
+  the end), per-step track mutes, play / continue / loop / end, NAME, tempo
+  stored per song, COPY and ERASE of songs, track time offsets, autolocate,
+  and the mode being remembered across power.
+- The SysEx memory dump (SEND ALL PARTS & SONGS OUT MIDI) as a round trip:
+  dump, clear memory, replay the dump into MIDI IN, part restored.
+
+Not covered: MERGE and the tape functions (no audio path in the simulator;
+a recording of a real MMT-8 tape dump would make that possible).
 
 `specs/mmt8/vocab.yaml` is the vocabulary: the buttons, a virtual MIDI
 keyboard on MIDI IN (`midi_note60`, `midi_cc7`, `midi_program`, `midi_start`,

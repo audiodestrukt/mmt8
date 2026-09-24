@@ -1,0 +1,67 @@
+spec: mmt8.song.edit-steps
+title: Song EDIT lists steps; COPY inserts a step and ERASE + RECORD removes one
+device: mmt8
+tags: [song, edit]
+description: >
+  Manual 8: in song edit the step number moves with >> and <<, the step past
+  the last part shows a blank part. COPY shows INSERT STEP with the part
+  chosen on the keypad; RECORD inserts it at the displayed step and moves the
+  following steps back. ERASE + RECORD erases the displayed step and shifts
+  the later steps down. The fixture song is part 00 three times.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 8
+
+given: three-step-song
+
+steps:
+  - press: song
+  - press: edit
+  - wait: 100ms
+  - expect: {lcd.line1: EDIT SONG 00, lcd.line2: STEP 01  PART 00, led.edit: true}
+  - press: ff
+  - press: ff
+  - wait: 100ms
+  - expect: {lcd.line2: STEP 03  PART 00}
+  - press: ff
+  - wait: 100ms
+  - expect: {lcd.line2: STEP 04  PART}          # past the end: blank part
+  - press: rew
+  - wait: 100ms
+  - expect: {lcd.line2: STEP 03  PART 00}
+  - hold:
+      keys: copy
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: INSERT STEP, lcd.line2: STEP 03  PART 00}
+        - press: digit0
+        - press: digit1
+        - wait: 100ms
+        - expect: {lcd.line2: STEP 03  PART 01}
+        - hold:
+            keys: rec
+            then:
+              - wait: 100ms
+              - expect: {lcd.line1: STEP INSERTED}
+  - wait: 100ms
+  - expect: {lcd.line1: EDIT SONG 00, lcd.line2: STEP 04  PART 00}   # the old step 3 moved back
+  - press: rew
+  - wait: 100ms
+  - expect: {lcd.line2: STEP 03  PART 01}
+  - hold:
+      keys: erase
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: ERASE STEP, lcd.line2: STEP 03  PART 01}
+        - hold:
+            keys: rec
+            then:
+              - wait: 100ms
+              - expect: {lcd.line1: STEP ERASED}
+  - wait: 100ms
+  - expect: {lcd.line2: STEP 03  PART 00}
+  - press: ff
+  - wait: 100ms
+  - expect: {lcd.line2: STEP 04  PART}

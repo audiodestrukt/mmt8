@@ -50,6 +50,7 @@ controls:
   midi_stop: {kind: button, doc: press sends a MIDI Stop (0xFC)}
   midi_continue: {kind: button, doc: press sends a MIDI Continue (0xFB)}
   midi_clock: {kind: button, doc: press sends one MIDI clock (0xF8)}
+  midi_sysex_return: {kind: button, doc: "press sends the last SysEx message received from MIDI OUT back into MIDI IN (a MIDI filer replaying a dump)"}
   # the power switch; turning it off and on keeps the battery-backed RAM
   power: {kind: switch, range: [0, 1]}
 
@@ -80,6 +81,13 @@ fixtures:
     doc: >
       Ready, then part 00 recorded on track 1 with one note starting at beat 1
       (velocity 100, about a quarter beat long) and stopped after `beats` beats.
+    params:
+      note: 60
+      beats: 2
+  three-step-song:
+    doc: >
+      Recorded part 00 as above, plus song 00 made of part 00 three times with
+      track 2 turned off on step 2 (so 6 beats long). Back in PART mode.
     params:
       note: 60
       beats: 2

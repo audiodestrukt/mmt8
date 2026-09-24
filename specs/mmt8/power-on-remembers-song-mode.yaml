@@ -1,0 +1,24 @@
+spec: mmt8.song.mode-kept-across-power-cycle
+title: After a power cycle the sequencer comes up in the mode and song it was left in
+device: mmt8
+tags: [song, power]
+description: >
+  Manual 2.1: when power is turned on the sequencer is in SONG or PART mode
+  depending on what was selected before power was turned off, with the same
+  song or part number.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 2.1
+
+given: three-step-song
+
+steps:
+  - press: song
+  - press: plus
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT SONG 01}
+  - set: {control: power, value: 0}
+  - set: {control: power, value: 1}
+  - expect: {lcd.line1: SELECT SONG 01, led.song: true, led.part: false}

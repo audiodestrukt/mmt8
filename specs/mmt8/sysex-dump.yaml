@@ -1,0 +1,57 @@
+spec: mmt8.sysex.dump-and-restore
+title: SEND ALL PARTS & SONGS OUT MIDI dumps memory as one SysEx message, which restores it when received
+device: mmt8
+tags: [sysex, tape, midi]
+description: >
+  Manual 22: the TAPE pages include SEND ALL PARTS & SONGS OUT MIDI; RECORD
+  sends the whole memory as one system exclusive message. The MMT-8 receives
+  such data at any time (LOADING while it arrives) and afterwards returns to
+  song 99; the previous memory contents are replaced. Here the dump is
+  replayed into MIDI IN after clearing memory, and the recorded part comes
+  back.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 22
+
+given: recorded-part
+
+steps:
+  - hold:
+      keys: tape
+      then:
+        - wait: 100ms
+        - press: pgdn
+        - wait: 100ms
+        - expect: {lcd.line1: SEND ALL PARTS &, lcd.line2: SONGS OUT MIDI}
+        - hold:
+            keys: rec
+            then:
+              - wait: 100ms
+              - expect: {lcd.line1: SENDING OUT DATA}
+  - wait: 1s
+  - expect: {lcd.line1: SELECT PART 00}
+  - expect_events: {contains: [{type: midi, status: sysex, length: {$gt: 100}}]}
+  - hold:
+      keys: [erase, pgup, pgdn]
+      then:
+        - set: {control: power, value: 0}
+        - set: {control: power, value: 1}
+        - wait: 3s
+  - wait: 500ms
+  - expect: {lcd.line2: '"  EMPTY PART  "'}
+  - press: midi_sysex_return
+  - wait: 2s
+  - expect: {lcd.line1: SELECT SONG 99}
+  - press: part
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT PART 00, lcd.line2: '" NO PART NAME "'}
+  - hold:
+      keys: length
+      then:
+        - wait: 100ms
+        - expect: {lcd.line2: LENGTH 002 BEATS}
+  - press: play
+  - wait: 600ms
+  - expect_events: {contains: [{type: midi, status: note_on, note: 60}]}

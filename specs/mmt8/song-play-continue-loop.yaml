@@ -1,0 +1,39 @@
+spec: mmt8.song.play-continue-loop-end
+title: A song plays its steps in order and stops at the end unless LOOP is on; STOP/CONTINUE resumes
+device: mmt8
+tags: [song, play, loop]
+description: >
+  Manual 9.3: PLAY starts the song from the first step showing song, step,
+  part and beat; at the end it stops and the PLAY LED turns off unless LOOP
+  is on. STOP/CONTINUE stops and, pressed again, continues from the beat it
+  was stopped on. The fixture song is 3 steps of 2 beats: 3 s at 120 BPM.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 9.3 and 10
+
+given: three-step-song
+
+steps:
+  - press: song
+  - wait: 100ms
+  - press: play
+  - wait: 300ms
+  - expect: {lcd.line1: SONG 00 STEP 001, lcd.line2: PART 00 BEAT 001, led.play: true}
+  - wait: 1s
+  - expect: {lcd.line1: SONG 00 STEP 002}
+  - press: stop
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT SONG 00, led.play: false}
+  - press: stop
+  - wait: 100ms
+  - expect: {lcd.line1: SONG 00 STEP 002, led.play: true}
+  - wait: 2s
+  - expect: {lcd.line1: SELECT SONG 00, led.play: false}      # ran off the end
+  - expect: {midi.note_count: 3}
+  - press: loop
+  - press: play
+  - wait: 3600ms
+  - expect: {led.play: true, led.loop: true, lcd.line1: SONG 00 STEP 001}
+  - expect: {midi.note_count: {$gte: 7}}

@@ -191,6 +191,8 @@ class Adapter:
         self.held = {}         # key -> time it went down
         self.released = {}     # key -> time it last went up
         self.note_count = 0    # note-on messages sent since reset
+        self.last_sysex = b""  # most recent complete SysEx message sent by the firmware
+        self.sysex_buf = None  # SysEx in progress across drains
         self.clock_count = 0   # MIDI clocks sent since reset
         self.msg_count = 0     # non-realtime messages since reset
 
@@ -209,6 +211,10 @@ class Adapter:
         elif fixture == "recorded-part":
             self.wait(BOOT_MS)
             self.record_part(int(params.get("note", 60)), int(params.get("beats", 2)))
+        elif fixture == "three-step-song":
+            self.wait(BOOT_MS)
+            self.record_part(int(params.get("note", 60)), int(params.get("beats", 2)))
+            self.build_song()
         else:
             raise ValueError(f"unknown fixture `{fixture}`")
         self.drain()
@@ -227,6 +233,19 @@ class Adapter:
         s.midi([0x90, note, 100]); s.wait(250); s.midi([0x80, note, 0])
         s.wait(beats * 500 - 250 - 20)
         s.press("STOP"); s.wait(50); s.release("STOP"); s.wait(100)
+
+    def tap(self, key, hold=60, after=120):
+        self.sim.press(key); self.wait(hold); self.sim.release(key); self.wait(after)
+
+    def build_song(self):
+        """Song 00 = part 00 three times, with track 2 muted on step 2; back
+        in PART mode afterwards."""
+        t = self.tap
+        t("SONG"); t("EDIT")
+        t("0"); t("0")                   # step 1 = part 00
+        t("FF"); t("0"); t("0"); t("T2") # step 2 = part 00, track 2 off
+        t("FF"); t("0"); t("0"); t("T2") # step 3 = part 00, track 2 back on (a new step inherits the current selection)
+        t("EDIT"); t("PART")
 
     # -- inputs --------------------------------------------------------
     def wait(self, ms):
@@ -251,6 +270,10 @@ class Adapter:
             self.sim.midi([0xFB])
         elif control == "midi_clock":
             self.sim.midi([0xF8])
+        elif control == "midi_sysex_return":
+            if not self.last_sysex:
+                raise ValueError("no SysEx has been received from MIDI OUT yet")
+            self.sim.midi(self.last_sysex)
         else:
             raise ValueError(f"cannot press `{control}`")
 
@@ -295,6 +318,7 @@ class Adapter:
     def drain(self):
         raw = self.sim.midiout()
         if raw:
+            self.capture_sysex(raw)
             evs = parse_midi(raw)
             self.clock_count += sum(1 for e in evs if e["status"] == "clock")
             self.msg_count += sum(1 for e in evs if e["status"] != "clock")
@@ -302,6 +326,19 @@ class Adapter:
             self.pending.extend(evs)
             if len(self.pending) > MAX_PENDING:     # safety net: never grow without bound
                 del self.pending[:-MAX_PENDING]
+
+    def capture_sysex(self, raw):
+        """Assemble complete F0..F7 messages even when they arrive in pieces."""
+        for b in raw:
+            if b == 0xF0:
+                self.sysex_buf = bytearray([b])
+            elif self.sysex_buf is not None:
+                if b >= 0xF8:
+                    continue                      # real-time may interleave
+                self.sysex_buf.append(b)
+                if b == 0xF7:
+                    self.last_sysex = bytes(self.sysex_buf)
+                    self.sysex_buf = None
 
     def observe(self, path):
         self.drain()

@@ -1,0 +1,30 @@
+spec: mmt8.song.name
+title: NAME renames a song, saved with RECORD
+device: mmt8
+tags: [song, name]
+description: >
+  Manual 12: a song that has been used is called NO SONG NAME; holding NAME
+  puts the cursor under its first character, + changes it and RECORD saves.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 12
+
+given: three-step-song
+
+steps:
+  - press: song
+  - wait: 100ms
+  - expect: {lcd.line2: '" NO SONG NAME "'}
+  - hold:
+      keys: name
+      then:
+        - wait: 100ms
+        - expect: {lcd.cursor: 17}
+        - press: plus
+        - wait: 100ms
+        - expect: {lcd.line2: '"!NO SONG NAME "'}
+        - press: rec
+  - wait: 100ms
+  - expect: {lcd.line2: '"!NO SONG NAME "', lcd.cursor: 13}

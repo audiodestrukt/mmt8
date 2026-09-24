@@ -1,0 +1,41 @@
+spec: mmt8.song.track-time-offsets
+title: In SONG mode QUANTIZE sets a clock offset per track in 384th notes
+device: mmt8
+tags: [song, quantize]
+description: >
+  Manual 15: in song mode the QUANTIZE button selects a clock offset for
+  each track, -48 to +48 384th notes, set with +/- or the keypad; track 1 is
+  lit first and each track can be selected and set independently.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 15
+
+given: three-step-song
+
+steps:
+  - press: song
+  - wait: 100ms
+  - hold:
+      keys: quant
+      then:
+        - wait: 100ms
+        - expect:
+            lcd.line1: SHIFT TRACK TIME
+            lcd.line2: 00/384th NOTES
+            led.track.1: true
+            led.track.2: false
+        - press: plus
+        - wait: 100ms
+        - expect: {lcd.line2: 01/384th NOTES}
+        - press: minus
+        - press: minus
+        - wait: 100ms
+        - expect: {lcd.line2: -01/384th NOTES}
+        - press: track2
+        - wait: 100ms
+        - expect: {lcd.line2: 00/384th NOTES, led.track.1: false, led.track.2: true}
+        - press: track1
+        - wait: 100ms
+        - expect: {lcd.line2: -01/384th NOTES}

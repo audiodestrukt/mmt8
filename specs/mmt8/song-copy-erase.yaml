@@ -1,0 +1,75 @@
+spec: mmt8.song.copy-and-erase
+title: COPY appends a song to itself or another song; ERASE + RECORD erases a song
+device: mmt8
+tags: [song, copy, erase]
+description: >
+  Manual 6.7-6.8: in song mode COPY shows COPY FROM SONG nn TO SONG nn;
+  RECORD appends the source song to the destination (a copy to itself doubles
+  it, an empty destination becomes a copy). Manual 5.4: ERASE shows ERASE
+  SONG nn and RECORD erases it.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 5.4, 6.7 and 6.8
+
+given: three-step-song
+
+steps:
+  - press: song
+  - wait: 100ms
+  - hold:
+      keys: copy
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: COPY FROM SONG, lcd.line2: 00 TO SONG 00}
+        - press: digit0
+        - press: digit1
+        - wait: 100ms
+        - expect: {lcd.line2: 00 TO SONG 01}
+        - hold:
+            keys: rec
+            then:
+              - wait: 100ms
+              - expect: {lcd.line1: COPY COMPLETE}
+  - hold:
+      keys: copy
+      then:
+        - wait: 100ms
+        - press: rec                                # song 00 to itself
+  - wait: 100ms
+  - press: edit
+  - wait: 100ms
+  - press: ff
+  - press: ff
+  - press: ff
+  - press: ff
+  - press: ff
+  - wait: 100ms
+  - expect: {lcd.line2: STEP 06  PART 00}          # doubled to six steps
+  - press: edit
+  - press: plus
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT SONG 01, lcd.line2: '" NO SONG NAME "'}
+  - press: edit
+  - wait: 100ms
+  - press: ff
+  - press: ff
+  - wait: 100ms
+  - expect: {lcd.line2: STEP 03  PART 00}
+  - press: ff
+  - wait: 100ms
+  - expect: {lcd.line2: STEP 04  PART}             # three steps were copied
+  - press: edit
+  - hold:
+      keys: erase
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: ERASE SONG  01}
+        - hold:
+            keys: rec
+            then:
+              - wait: 100ms
+              - expect: {lcd.line1: ERASE COMPLETE}
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT SONG 01, lcd.line2: '"  EMPTY SONG  "'}

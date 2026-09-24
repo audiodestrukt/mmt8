@@ -1,0 +1,36 @@
+spec: mmt8.song.track-mutes-per-step
+title: Track on/off selections are stored with each song step and recalled while playing
+device: mmt8
+tags: [song, tracks]
+description: >
+  Manual 8.1: tracks turned off while editing a step are stored with that
+  step. Manual 9.3: while a song plays, the track LEDs show which tracks are
+  on for the current step. The fixture song has track 2 off on step 2 only.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 8.1 and 9.3
+
+given: three-step-song
+
+steps:
+  - press: song
+  - press: edit
+  - wait: 100ms
+  - expect: {led.track.2: true}
+  - press: ff
+  - wait: 100ms
+  - expect: {lcd.line2: STEP 02  PART 00, led.track.2: false, led.track.1: true}
+  - press: ff
+  - wait: 100ms
+  - expect: {led.track.2: true}
+  - press: edit
+  - wait: 100ms
+  - press: play
+  - wait: 300ms
+  - expect: {lcd.line1: SONG 00 STEP 001, led.track.2: true}
+  - wait: 1s
+  - expect: {lcd.line1: SONG 00 STEP 002, led.track.2: false}
+  - wait: 1s
+  - expect: {lcd.line1: SONG 00 STEP 003, led.track.2: true}
