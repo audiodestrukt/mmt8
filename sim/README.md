@@ -364,14 +364,22 @@ straight back, which is what the firmware's MIDI self-test needs (it sends
 
 ### GUI (`mmt8_gui.c`)
 
-The GUI renders an 820x500 window using SDL2 + SDL2_ttf:
+The GUI renders a 780x600 window using SDL2 + SDL2_ttf, laid out like the
+real front panel: a 4x3 block of function keys (QUANT, LENGTH, PART / COPY,
+NAME, EDIT / TRANS, MERGE, SONG / ERASE, TAPE, MIDI CHAN) with PAGE DOWN and
+PAGE UP beneath, the LCD over the keypad (1-5, 6-0, - and +), a column of
+LOOP, MIDI ECHO, MIDI FILTER, CLOCK, CLICK and TEMPO on the right, the eight
+TRACK keys across the middle and the transport (<<, >>, green PLAY,
+STOP/CONT, red RECORD) along the bottom.
 
 - **LCD display**: Amber text (#FFAA00) on dark background (#332200) in a
   bordered rectangle. Monospace font, 2 lines x 16 characters.
-- **Buttons**: Rectangles with text labels arranged to approximate the MMT-8
-  front panel. Darken on press.
-- **LEDs**: Small squares above buttons that have indicators, driven by the
-  two LED latches described above. Red for REC, green otherwise.
+- **Buttons**: Light membrane keys that darken on press, each showing its
+  keyboard shortcut in the corner where there is room.
+- **LEDs**: Placed as on the unit (right of PART/EDIT/SONG, left of LOOP and
+  MIDI ECHO, above the tracks, PLAY and RECORD), driven by the two LED
+  latches described above.
+- **MIDI IN / OUT dots** in the header strip flash on message traffic.
 - **Font discovery**: Tries several common monospace font paths
   (DejaVu Sans Mono, Liberation Mono, FreeMono). Falls back to no text if none
   found.

@@ -8,28 +8,28 @@
 #include "mmt8_keys.h"
 
 /* ---- Window dimensions ---- */
-#define WIN_W 820
-#define WIN_H 500
+#define WIN_W 780
+#define WIN_H 600
 
 /* ---- Colors ---- */
-#define COL_BG_R       45
-#define COL_BG_G       45
-#define COL_BG_B       50
+#define COL_BG_R       88
+#define COL_BG_G       90
+#define COL_BG_B       94
 #define COL_LCD_BG_R   0x33
 #define COL_LCD_BG_G   0x22
 #define COL_LCD_BG_B   0x00
 #define COL_LCD_FG_R   0xFF
 #define COL_LCD_FG_G   0xAA
 #define COL_LCD_FG_B   0x00
-#define COL_BTN_R      70
-#define COL_BTN_G      70
-#define COL_BTN_B      75
-#define COL_BTN_PR_R   50
-#define COL_BTN_PR_G   50
-#define COL_BTN_PR_B   55
-#define COL_TXT_R      220
-#define COL_TXT_G      220
-#define COL_TXT_B      220
+#define COL_BTN_R      205
+#define COL_BTN_G      203
+#define COL_BTN_B      196
+#define COL_BTN_PR_R   150
+#define COL_BTN_PR_G   148
+#define COL_BTN_PR_B   142
+#define COL_TXT_R      30
+#define COL_TXT_G      30
+#define COL_TXT_B      34
 #define COL_LED_ON_R   0
 #define COL_LED_ON_G   220
 #define COL_LED_ON_B   0
@@ -54,7 +54,12 @@ typedef struct {
     int led_src;      /* LED_NONE, LED_TRACK (led_data latch) or LED_STATUS (status latch); both active low */
     int led_bit;      /* bit number within that latch */
     int led_red;      /* 1 = red LED (REC), else green */
+    int led_side;     /* LED_ABOVE, LED_RIGHT or LED_LEFT of the button */
+    int color;        /* KEY_GREY, KEY_GREEN or KEY_RED */
 } button_t;
+
+enum { LED_ABOVE = 0, LED_RIGHT = 1, LED_LEFT = 2 };
+enum { KEY_GREY = 0, KEY_GREEN = 1, KEY_RED = 2 };
 
 enum { LED_NONE = 0, LED_TRACK = 1, LED_STATUS = 2 };
 
@@ -95,90 +100,81 @@ static void add_button(int x, int y, int w, int h,
     b->led_src = led_src;
     b->led_bit = led_bit;
     b->led_red = led_red;
+    b->led_side = LED_ABOVE;
+    b->color = KEY_GREY;
 }
+
+static button_t *last_button(void) { return num_buttons ? &buttons[num_buttons - 1] : NULL; }
 
 /* Button layout. Matrix positions come from mmt8_keys.c; LED sources:
  * track LEDs are bits of the LED data latch, the mode and transport LEDs
  * are bits of the status latch. Both latches are active low. */
 static void init_buttons(void)
 {
-    int bw = 52, bh = 28;    /* standard button size */
-    int tw = 42, th = 36;    /* track button size */
-    int nw = 34, nh = 28;    /* numpad button size */
-    int gap = 6;
-
+    /*
+     * The front panel, as on the unit (left to right):
+     *   a 4x3 block of function keys with PAGE DOWN / PAGE UP beneath,
+     *   the LCD with the keypad under it,
+     *   a column of six keys on the right,
+     *   eight TRACK keys with LEDs across the middle,
+     *   and the transport along the bottom.
+     */
+    int kw = 60, kh = 24, gap = 8;
     num_buttons = 0;
 
-    /* --- Row 1: Mode buttons (y=20) --- */
-    int y = 20;
-    int x = 260;
-    add_button(x, y, bw, bh, "PART", "PART", LED_STATUS, 2, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "EDIT", "EDIT", LED_STATUS, 3, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "SONG", "SONG", LED_STATUS, 4, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "NAME", "NAME", LED_NONE,   0, 0);  x += bw + gap + 12;
-    add_button(x, y, bw, bh, "PG UP", "PGUP", LED_NONE,   0, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "PG DN", "PGDN", LED_NONE,   0, 0);
-
-    /* --- Row 2: Function buttons (y=60) --- */
-    y = 60;
-    x = 260;
-    add_button(x, y, bw, bh, "CLICK", "CLICK", LED_NONE, 0, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "COPY", "COPY", LED_NONE, 0, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "ERASE", "ERASE", LED_NONE, 0, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "TEMPO", "TEMPO", LED_NONE, 0, 0);
-
-    /* --- Row 3: More functions (y=100) --- */
-    y = 100;
-    x = 20;
-    add_button(x, y, bw, bh, "LOOP", "LOOP", LED_STATUS, 6, 0);  x += bw + gap;
-    add_button(x, y, bw+12, bh, "ECHO", "ECHO", LED_STATUS, 5, 0);  x += bw + 12 + gap;
-    add_button(x, y, bw, bh, "LENGTH", "LENGTH", LED_NONE, 0, 0);    x += bw + gap;
-    add_button(x, y, bw, bh, "MERGE", "MERGE", LED_NONE, 0, 0);
-
-    /* --- Row 4: Even more functions (y=140) --- */
-    y = 140;
-    x = 20;
-    add_button(x, y, bw, bh, "QUANT", "QUANT", LED_NONE, 0, 0);  x += bw + gap;
-    add_button(x, y, bw+4, bh, "TRANS", "TRANS", LED_NONE, 0, 0);  x += bw + 4 + gap;
-    add_button(x, y, bw+4, bh, "FILTER", "FILTER", LED_NONE, 0, 0);  x += bw + 4 + gap;
-    add_button(x, y, bw+4, bh, "MIDI CH", "MIDICH", LED_NONE, 0, 0);  x += bw + 4 + gap;
-    add_button(x, y, bw, bh, "CLOCK", "CLOCK", LED_NONE, 0, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "TAPE", "TAPE", LED_NONE, 0, 0);
-
-    /* --- Track buttons with LEDs (y=200): column 1, rows 0-7 --- */
-    y = 200;
-    x = 20;
-    for (int i = 0; i < 8; i++) {
-        static const char *labels[] = {"1","2","3","4","5","6","7","8"};
-        static const char *keys[] = {"T1","T2","T3","T4","T5","T6","T7","T8"};
-        add_button(x, y, tw, th, labels[i], keys[i], LED_TRACK, i, 0);
-        x += tw + gap;
-    }
-
-    /* --- Numeric keypad (y=280) --- */
-    y = 280;
-    x = 20;
-    {
-        static const char *labels[] = {"0","1","2","3","4","5","6","7","8","9"};
-        for (int i = 0; i < 10; i++) {
-            add_button(x, y, nw, nh, labels[i], labels[i], LED_NONE, 0, 0);
-            x += nw + gap;
+    /* --- left block --- */
+    int x0 = 36, y0 = 150, cw = kw + gap, rh = kh + 14;
+    const char *grid[4][3][2] = {
+        { {"QUANT", "QUANT"}, {"LENGTH", "LENGTH"}, {"PART", "PART"} },
+        { {"COPY",  "COPY"},  {"NAME",   "NAME"},   {"EDIT", "EDIT"} },
+        { {"TRANS", "TRANS"}, {"MERGE",  "MERGE"},  {"SONG", "SONG"} },
+        { {"ERASE", "ERASE"}, {"TAPE",   "TAPE"},   {"MIDI CHAN", "MIDICH"} },
+    };
+    const int mode_led_bit[3] = {2, 3, 4};   /* PART, EDIT, SONG in the status latch */
+    for (int r = 0; r < 4; r++)
+        for (int c = 0; c < 3; c++) {
+            int led = (c == 2 && r < 3) ? LED_STATUS : LED_NONE;
+            add_button(x0 + c * cw, y0 + r * rh, kw, kh, grid[r][c][0], grid[r][c][1],
+                       led, led ? mode_led_bit[r] : 0, 0);
+            if (led) last_button()->led_side = LED_RIGHT;
         }
+    add_button(x0,               y0 + 4 * rh + 6, kw + 16, kh, "PAGE DOWN", "PGDN", LED_NONE, 0, 0);
+    add_button(x0 + 2 * cw - 16, y0 + 4 * rh + 6, kw + 16, kh, "PAGE UP",   "PGUP", LED_NONE, 0, 0);
+
+    /* --- keypad under the LCD --- */
+    int kx = 300, ky = 238, nw = 34, nh = 24, ng = 12;
+    static const char *row1[] = {"1", "2", "3", "4", "5"};
+    static const char *row2[] = {"6", "7", "8", "9", "0"};
+    for (int i = 0; i < 5; i++) {
+        add_button(kx + i * (nw + ng), ky,           nw, nh, row1[i], row1[i], LED_NONE, 0, 0);
+        add_button(kx + i * (nw + ng), ky + nh + 12, nw, nh, row2[i], row2[i], LED_NONE, 0, 0);
     }
+    add_button(kx,                 ky + 2 * (nh + 12), nw, nh, "-", "MINUS", LED_NONE, 0, 0);
+    add_button(kx + 4 * (nw + ng), ky + 2 * (nh + 12), nw, nh, "+", "PLUS",  LED_NONE, 0, 0);
 
-    /* --- +/- buttons --- */
-    x += gap;
-    add_button(x, y, nw, nh, "+", "PLUS", LED_NONE, 0, 0);  x += nw + gap;
-    add_button(x, y, nw, nh, "-", "MINUS", LED_NONE, 0, 0);
+    /* --- right column --- */
+    int rx = 626, ry = 150, rrh = 34;
+    add_button(rx, ry + 0 * rrh, kw + 24, kh, "LOOP",        "LOOP",   LED_STATUS, 6, 0); last_button()->led_side = LED_LEFT;
+    add_button(rx, ry + 1 * rrh, kw + 24, kh, "MIDI ECHO",   "ECHO",   LED_STATUS, 5, 0); last_button()->led_side = LED_LEFT;
+    add_button(rx, ry + 2 * rrh, kw + 24, kh, "MIDI FILTER", "FILTER", LED_NONE, 0, 0);
+    add_button(rx, ry + 3 * rrh, kw + 24, kh, "CLOCK",       "CLOCK",  LED_NONE, 0, 0);
+    add_button(rx, ry + 4 * rrh, kw + 24, kh, "CLICK",       "CLICK",  LED_NONE, 0, 0);
+    add_button(rx, ry + 5 * rrh, kw + 24, kh, "TEMPO",       "TEMPO",  LED_NONE, 0, 0);
 
-    /* --- Transport buttons (y=330) --- */
-    y = 330;
-    x = 20;
-    add_button(x, y, bw, bh, "<<", "REW", LED_NONE, 0, 0);    x += bw + gap;
-    add_button(x, y, bw, bh, ">>", "FF", LED_NONE, 0, 0);    x += bw + gap + 20;
-    add_button(x, y, bw, bh, "PLAY", "PLAY", LED_STATUS, 0, 0);  x += bw + gap;
-    add_button(x, y, bw+8, bh, "STOP", "STOP", LED_NONE, 0, 0);   x += bw + 8 + gap;
-    add_button(x, y, bw, bh, "REC", "REC", LED_STATUS, 1, 1);
+    /* --- track keys --- */
+    int tx = 36, ty = 420, tw = 74, th = 26, tg = 10;
+    static const char *tlabels[] = {"TRACK 1","TRACK 2","TRACK 3","TRACK 4","TRACK 5","TRACK 6","TRACK 7","TRACK 8"};
+    static const char *tkeys[]   = {"T1","T2","T3","T4","T5","T6","T7","T8"};
+    for (int i = 0; i < 8; i++)
+        add_button(tx + i * (tw + tg), ty, tw, th, tlabels[i], tkeys[i], LED_TRACK, i, 0);
+
+    /* --- transport --- */
+    int py = 520, pw = 62, ph = 30;
+    add_button(36,  py, 48, ph, "<<", "REW", LED_NONE, 0, 0);
+    add_button(96,  py, 48, ph, ">>", "FF",  LED_NONE, 0, 0);
+    add_button(420, py, pw, ph, "PLAY", "PLAY", LED_STATUS, 0, 0); last_button()->color = KEY_GREEN;
+    add_button(500, py, pw + 16, ph, "STOP/CONT", "STOP", LED_NONE, 0, 0);
+    add_button(600, py, pw, ph, "RECORD", "REC", LED_STATUS, 1, 1); last_button()->color = KEY_RED;
 }
 
 /*
@@ -244,8 +240,42 @@ static button_t *find_button(int x, int y)
 static void render_lcd(void)
 {
     lcd_state_t *lcd = mmt8_get_lcd();
-    SDL_Rect border = {18, 18, 224, 64};
-    SDL_Rect inner  = {20, 20, 220, 60};
+    SDL_Rect border = {286, 150, 246, 74};
+    SDL_Rect inner  = {290, 154, 238, 66};
+
+    /* Header strip with the model name, and the ALESIS badge */
+    SDL_Rect strip = {0, 0, WIN_W, 70};
+    SDL_SetRenderDrawColor(renderer, 60, 62, 66, 255);
+    SDL_RenderFillRect(renderer, &strip);
+    for (int i = 0; i < WIN_W; i += 4) { SDL_SetRenderDrawColor(renderer, 40, 42, 46, 255); SDL_RenderDrawLine(renderer, i, 0, i, 12); }
+    if (font_lcd) {
+        SDL_Color white = {235, 235, 235, 255};
+        SDL_Surface *surf = TTF_RenderText_Blended(font_lcd, "MMT-8", white);
+        if (surf) {
+            SDL_Texture *tex = SDL_CreateTextureFromSurface(renderer, surf);
+            SDL_Rect dst = {36, 24, surf->w * 2, surf->h * 2};
+            SDL_RenderCopy(renderer, tex, NULL, &dst);
+            SDL_DestroyTexture(tex); SDL_FreeSurface(surf);
+        }
+        if (font_small) {
+            surf = TTF_RenderText_Blended(font_small, "MULTI TRACK MIDI RECORDER", white);
+            if (surf) {
+                SDL_Texture *tex = SDL_CreateTextureFromSurface(renderer, surf);
+                SDL_Rect dst = {200, 46, surf->w, surf->h};
+                SDL_RenderCopy(renderer, tex, NULL, &dst);
+                SDL_DestroyTexture(tex); SDL_FreeSurface(surf);
+            }
+            SDL_Rect badge = {36, 100, 74, 22};
+            SDL_SetRenderDrawColor(renderer, 20, 20, 22, 255); SDL_RenderFillRect(renderer, &badge);
+            surf = TTF_RenderText_Blended(font_btn ? font_btn : font_small, "ALESIS", white);
+            if (surf) {
+                SDL_Texture *tex = TTF_RenderText_Blended ? SDL_CreateTextureFromSurface(renderer, surf) : NULL;
+                SDL_Rect dst = {badge.x + (badge.w - surf->w) / 2, badge.y + (badge.h - surf->h) / 2, surf->w, surf->h};
+                SDL_RenderCopy(renderer, tex, NULL, &dst);
+                SDL_DestroyTexture(tex); SDL_FreeSurface(surf);
+            }
+        }
+    }
 
     /* Border */
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255);
@@ -273,7 +303,7 @@ static void render_lcd(void)
         SDL_Surface *surf = TTF_RenderText_Blended(font_lcd, text, fg);
         if (surf) {
             SDL_Texture *tex = SDL_CreateTextureFromSurface(renderer, surf);
-            SDL_Rect dst = {24, 24 + line * 28, surf->w, surf->h};
+            SDL_Rect dst = {296, 158 + line * 30, surf->w, surf->h};
             SDL_RenderCopy(renderer, tex, NULL, &dst);
             SDL_DestroyTexture(tex);
             SDL_FreeSurface(surf);
@@ -291,22 +321,25 @@ static void render_buttons(void)
     for (int i = 0; i < num_buttons; i++) {
         button_t *b = &buttons[i];
 
-        /* Button fill */
-        if (b->pressed || b->key_held)
-            SDL_SetRenderDrawColor(renderer, COL_BTN_PR_R, COL_BTN_PR_G, COL_BTN_PR_B, 255);
-        else
-            SDL_SetRenderDrawColor(renderer, COL_BTN_R, COL_BTN_G, COL_BTN_B, 255);
+        /* Button fill: grey membrane keys, green PLAY, red RECORD */
+        int down = b->pressed || b->key_held;
+        if (b->color == KEY_GREEN)     SDL_SetRenderDrawColor(renderer, down ? 40 : 70, down ? 120 : 170, down ? 60 : 90, 255);
+        else if (b->color == KEY_RED)  SDL_SetRenderDrawColor(renderer, down ? 150 : 205, down ? 40 : 60, down ? 40 : 55, 255);
+        else if (down)                 SDL_SetRenderDrawColor(renderer, COL_BTN_PR_R, COL_BTN_PR_G, COL_BTN_PR_B, 255);
+        else                           SDL_SetRenderDrawColor(renderer, COL_BTN_R, COL_BTN_G, COL_BTN_B, 255);
         SDL_RenderFillRect(renderer, &b->rect);
 
         /* Button border */
-        SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255);
+        SDL_SetRenderDrawColor(renderer, 40, 40, 44, 255);
         SDL_RenderDrawRect(renderer, &b->rect);
 
         /* Label */
+        int label_w = 0;
         if (font_btn && b->label) {
-            TTF_Font *f = (strlen(b->label) > 4) ? font_small : font_btn;
+            TTF_Font *f = (strlen(b->label) > 3) ? font_small : font_btn;
             SDL_Surface *surf = TTF_RenderText_Blended(f, b->label, txt_color);
             if (surf) {
+                label_w = surf->w;
                 SDL_Texture *tex = SDL_CreateTextureFromSurface(renderer, surf);
                 int tx = b->rect.x + (b->rect.w - surf->w) / 2;
                 int ty = b->rect.y + (b->rect.h - surf->h) / 2;
@@ -319,7 +352,7 @@ static void render_buttons(void)
 
         /* Keyboard shortcut hint in the corner */
         const char *hint = hint_for(b);
-        if (font_small && hint) {
+        if (font_small && hint && b->rect.w - label_w >= 40) {
             SDL_Color dim = {140, 140, 150, 255};
             SDL_Surface *surf = TTF_RenderText_Blended(font_small, hint, dim);
             if (surf) {
@@ -335,6 +368,8 @@ static void render_buttons(void)
         if (b->led_src != LED_NONE) {
             int cx = b->rect.x + b->rect.w / 2;
             int cy = b->rect.y - LED_RADIUS - 3;
+            if (b->led_side == LED_RIGHT) { cx = b->rect.x + b->rect.w + LED_RADIUS + 6; cy = b->rect.y + b->rect.h / 2; }
+            if (b->led_side == LED_LEFT)  { cx = b->rect.x - LED_RADIUS - 6;             cy = b->rect.y + b->rect.h / 2; }
             /* both latches are active low: a cleared bit lights the LED */
             int on = (b->led_src == LED_TRACK)
                    ? !((led_d >> b->led_bit) & 1)
@@ -376,12 +411,12 @@ static void render_midi_activity(void)
     if (st->tx_msg_bytes != last_tx) { last_tx = st->tx_msg_bytes; tx_until = now + MIDI_LED_HOLD_MS; }
 
     struct { const char *label; int on; int x; } dots[2] = {
-        { "MIDI IN",  now < rx_until, 260 },
-        { "MIDI OUT", now < tx_until, 350 },
+        { "MIDI IN",  now < rx_until, 560 },
+        { "MIDI OUT", now < tx_until, 660 },
     };
     SDL_Color txt = {COL_TXT_R, COL_TXT_G, COL_TXT_B, 255};
     for (int i = 0; i < 2; i++) {
-        SDL_Rect r = {dots[i].x, 100 - LED_RADIUS, LED_RADIUS * 2, LED_RADIUS * 2};
+        SDL_Rect r = {dots[i].x, 40 - LED_RADIUS, LED_RADIUS * 2, LED_RADIUS * 2};
         if (dots[i].on) SDL_SetRenderDrawColor(renderer, 255, 170, 0, 255);
         else            SDL_SetRenderDrawColor(renderer, 60, 45, 20, 255);
         SDL_RenderFillRect(renderer, &r);
@@ -389,7 +424,7 @@ static void render_midi_activity(void)
             SDL_Surface *surf = TTF_RenderText_Blended(font_small, dots[i].label, txt);
             if (surf) {
                 SDL_Texture *tex = SDL_CreateTextureFromSurface(renderer, surf);
-                SDL_Rect dst = {dots[i].x + LED_RADIUS * 2 + 4, 100 - surf->h / 2, surf->w, surf->h};
+                SDL_Rect dst = {dots[i].x + LED_RADIUS * 2 + 4, 40 - surf->h / 2, surf->w, surf->h};
                 SDL_RenderCopy(renderer, tex, NULL, &dst);
                 SDL_DestroyTexture(tex);
                 SDL_FreeSurface(surf);
