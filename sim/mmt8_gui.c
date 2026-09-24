@@ -301,6 +301,40 @@ static void render_buttons(void)
     }
 }
 
+/* MIDI IN / OUT activity dots: lit for a moment after each byte moves. */
+#define MIDI_LED_HOLD_MS 120
+static void render_midi_activity(void)
+{
+    static unsigned long last_rx, last_tx;
+    static Uint32 rx_until, tx_until;
+    const mmt8_uart_stats_t *st = mmt8_uart_stats();
+    Uint32 now = SDL_GetTicks();
+    if (st->rx_bytes != last_rx) { last_rx = st->rx_bytes; rx_until = now + MIDI_LED_HOLD_MS; }
+    if (st->tx_bytes != last_tx) { last_tx = st->tx_bytes; tx_until = now + MIDI_LED_HOLD_MS; }
+
+    struct { const char *label; int on; int x; } dots[2] = {
+        { "MIDI IN",  now < rx_until, 260 },
+        { "MIDI OUT", now < tx_until, 350 },
+    };
+    SDL_Color txt = {COL_TXT_R, COL_TXT_G, COL_TXT_B, 255};
+    for (int i = 0; i < 2; i++) {
+        SDL_Rect r = {dots[i].x, 100 - LED_RADIUS, LED_RADIUS * 2, LED_RADIUS * 2};
+        if (dots[i].on) SDL_SetRenderDrawColor(renderer, 255, 170, 0, 255);
+        else            SDL_SetRenderDrawColor(renderer, 60, 45, 20, 255);
+        SDL_RenderFillRect(renderer, &r);
+        if (font_small) {
+            SDL_Surface *surf = TTF_RenderText_Blended(font_small, dots[i].label, txt);
+            if (surf) {
+                SDL_Texture *tex = SDL_CreateTextureFromSurface(renderer, surf);
+                SDL_Rect dst = {dots[i].x + LED_RADIUS * 2 + 4, 100 - surf->h / 2, surf->w, surf->h};
+                SDL_RenderCopy(renderer, tex, NULL, &dst);
+                SDL_DestroyTexture(tex);
+                SDL_FreeSurface(surf);
+            }
+        }
+    }
+}
+
 /* ---- Public API ---- */
 
 int gui_init(void)
@@ -393,6 +427,7 @@ void gui_render(struct em8051 *cpu)
 
     render_lcd();
     render_buttons();
+    render_midi_activity();
 
     SDL_RenderPresent(renderer);
 }
