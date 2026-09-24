@@ -8,6 +8,8 @@ showing the LCD display, LEDs and clickable buttons; the MIDI IN and MIDI OUT
 jacks are exposed as ALSA sequencer ports, so the simulated MMT-8 can be wired
 to real keyboards, synths and DAWs like any other MIDI device.
 
+![The simulator's front panel](../docs/images/simulator.png)
+
 ## Status
 
 Working:

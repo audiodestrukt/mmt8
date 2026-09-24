@@ -4,6 +4,8 @@ Disassembly and decompilation of the Alesis MMT-8 MIDI sequencer firmware (v1.11
 
 ## Hardware Simulator
 
+![The MMT-8 simulator playing part 00](docs/images/simulator.png)
+
 [`sim/`](sim/) contains a hardware-level simulator: the unmodified 32 KB EPROM
 image runs on a patched [emu8051](https://github.com/jarikomppa/emu8051) core,
 with the MMT-8's RAM, address decoding, I/O latches, HD44780 LCD, keyboard
