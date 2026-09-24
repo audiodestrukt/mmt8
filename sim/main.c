@@ -4,6 +4,9 @@
 #include <signal.h>
 #include <time.h>
 #include <getopt.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <errno.h>
 #include <SDL2/SDL.h>
 #include "emu8051.h"
 #include "mmt8_hw.h"
@@ -35,12 +38,17 @@ static int   opt_trace;
 static int   opt_lcd_log;
 static int   opt_loopback;
 static int   opt_script;
+static int   opt_fresh;                 /* ignore the saved memory image */
+static const char *opt_memory_file;     /* battery-backed RAM image */
+static const char *opt_load_syx;        /* .syx to replay into MIDI IN after boot */
+static char  memory_path[1024];
+static char  data_dir[900];
 static long  opt_exit_after_ms = -1;
 static long  opt_hold_ms = 100;
 static const char *opt_midi_in;
 static const char *opt_midi_out;
 static const char *opt_screenshot;
-static struct { int col, row; long at_ms; } presses[MAX_PRESSES];
+static struct { int col, row; long at_ms; long hold_ms; } presses[MAX_PRESSES];
 static int num_presses;
 
 static void on_sigint(int sig) { (void)sig; running = 0; }
@@ -108,6 +116,105 @@ static void dump_lcd(uint64_t total_cycles)
     printf("  PC=0x%04X LED_CTRL=0x%02X LED_DATA=0x%02X STATUS=0x%02X TRANSPORT=0x%02X\n",
            cpu.mPC, mmt8_get_led_control(), mmt8_get_led_data(),
            mmt8_get_status_latch(), mmt8_get_transport_state());
+}
+
+/* ---- Battery-backed memory and SysEx files ----------------------------- */
+
+static const char *get_data_dir(void)
+{
+    if (data_dir[0]) return data_dir;
+    const char *xdg = getenv("XDG_DATA_HOME"), *home = getenv("HOME");
+    if (xdg && *xdg) snprintf(data_dir, sizeof data_dir, "%s/mmt8sim", xdg);
+    else             snprintf(data_dir, sizeof data_dir, "%s/.local/share/mmt8sim", home ? home : ".");
+    char parent[900]; snprintf(parent, sizeof parent, "%s", data_dir);
+    char *slash = strrchr(parent, '/'); if (slash) { *slash = 0; mkdir(parent, 0755); }
+    mkdir(data_dir, 0755);
+    return data_dir;
+}
+
+/* Returns 1 if a saved image was loaded into XDATA. */
+static int memory_load(void)
+{
+    FILE *f = fopen(memory_path, "rb");
+    if (!f) return 0;
+    size_t n = fread(cpu.mExtData, 1, XDATA_SIZE, f);
+    fclose(f);
+    if (n != XDATA_SIZE) { fprintf(stderr, "Ignoring %s: wrong size\n", memory_path); return 0; }
+    return 1;
+}
+
+static void memory_save(void)
+{
+    char tmp[1100]; snprintf(tmp, sizeof tmp, "%s.tmp", memory_path);
+    FILE *f = fopen(tmp, "wb");
+    if (!f || fwrite(cpu.mExtData, 1, XDATA_SIZE, f) != XDATA_SIZE) {
+        fprintf(stderr, "Cannot save memory to %s: %s\n", memory_path, strerror(errno));
+        if (f) fclose(f);
+        return;
+    }
+    fclose(f);
+    rename(tmp, memory_path);
+    printf("Memory saved to %s\n", memory_path);
+}
+
+/* Feed a .syx file into MIDI IN (the firmware loads any dump it receives). */
+static int syx_load(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) { fprintf(stderr, "Cannot open %s: %s\n", path, strerror(errno)); return -1; }
+    int c, n = 0, dropped = 0;
+    while ((c = fgetc(f)) != EOF) { if (mmt8_uart_rx_push((uint8_t)c) < 0) dropped++; else n++; }
+    fclose(f);
+    if (dropped) fprintf(stderr, "Warning: %d bytes of %s did not fit the MIDI IN buffer\n", dropped, path);
+    printf("Replaying %d bytes of %s into MIDI IN\n", n, path);
+    return 0;
+}
+
+/* Newest *.syx in the data directory, or NULL. */
+static const char *syx_newest(void)
+{
+    static char best[1200]; best[0] = 0;
+    time_t best_t = 0;
+    DIR *d = opendir(get_data_dir());
+    if (!d) return NULL;
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        size_t l = strlen(e->d_name);
+        if (l < 5 || strcmp(e->d_name + l - 4, ".syx") != 0) continue;
+        char path[1200]; snprintf(path, sizeof path, "%s/%s", get_data_dir(), e->d_name);
+        struct stat st;
+        if (stat(path, &st) == 0 && st.st_mtime >= best_t) { best_t = st.st_mtime; snprintf(best, sizeof best, "%s", path); }
+    }
+    closedir(d);
+    return best[0] ? best : NULL;
+}
+
+/* SysEx capture: while armed, the next complete F0..F7 on MIDI OUT is written to a file. */
+static FILE *syx_capture;
+static int   syx_in_message;
+static char  syx_capture_path[1200];
+
+static void syx_capture_arm(void)
+{
+    time_t now = time(NULL);
+    struct tm tmv; localtime_r(&now, &tmv);
+    char stamp[32]; strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", &tmv);
+    snprintf(syx_capture_path, sizeof syx_capture_path, "%s/mmt8-%s.syx", get_data_dir(), stamp);
+    syx_capture = fopen(syx_capture_path, "wb");
+    if (!syx_capture) { fprintf(stderr, "Cannot create %s: %s\n", syx_capture_path, strerror(errno)); return; }
+    syx_in_message = 0;
+}
+
+static void syx_capture_byte(uint8_t b)
+{
+    if (!syx_capture) return;
+    if (b == 0xF0) syx_in_message = 1;
+    if (!syx_in_message || b >= 0xF8) return;     /* skip real-time bytes interleaved in the dump */
+    fputc(b, syx_capture);
+    if (b == 0xF7) {
+        fclose(syx_capture); syx_capture = NULL;
+        printf("SysEx dump saved to %s\n", syx_capture_path);
+    }
 }
 
 /* Cold (wipe RAM) or warm (keep RAM, like the memory battery) power-on.
@@ -225,6 +332,28 @@ static int script_mode(void)
     return 0;
 }
 
+/* Queue a press of a named key at an emulated time (used by the GUI actions). */
+static void queue_press(const char *name, uint64_t at_ms, long hold_ms)
+{
+    const mmt8_key_t *k = mmt8_key_find(name);
+    if (!k || num_presses >= MAX_PRESSES) return;
+    presses[num_presses].col = k->col;
+    presses[num_presses].row = k->row;
+    presses[num_presses].at_ms = (long)at_ms;
+    presses[num_presses].hold_ms = hold_ms;
+    num_presses++;
+}
+
+/* Ctrl+S: have the firmware send its memory dump (TAPE, page down, RECORD) and file it. */
+static void gui_dump_to_syx(uint64_t emu_ms)
+{
+    syx_capture_arm();
+    if (!syx_capture) return;
+    queue_press("TAPE", emu_ms + 50, 700);
+    queue_press("PGDN", emu_ms + 200, 80);
+    queue_press("REC",  emu_ms + 450, 80);
+}
+
 /* Print the LCD whenever its visible contents change (--lcd-log). */
 static void log_lcd_changes(uint64_t emu_ms)
 {
@@ -253,6 +382,7 @@ static void pump_midi(void)
     while (mmt8_uart_tx_pop(&b)) {
         if (opt_trace) fprintf(stderr, "MIDI OUT %02X\n", b);
         if (opt_loopback) mmt8_uart_rx_push(b);
+        syx_capture_byte(b);
         if (!opt_no_midi) midi_send_byte(b);
     }
     if (!opt_no_midi) {
@@ -270,10 +400,11 @@ static void update_scripted_keys(uint64_t emu_ms)
     for (int i = 0; i < num_presses; i++) {
         uint64_t t0 = presses[i].at_ms >= 0 ? (uint64_t)presses[i].at_ms
                       : PRESS_FIRST_MS + (uint64_t)i * PRESS_SPACING_MS;
+        uint64_t hold = presses[i].hold_ms > 0 ? (uint64_t)presses[i].hold_ms : (uint64_t)opt_hold_ms;
         if (state[i] == 0 && emu_ms >= t0) {
             mmt8_key_press(presses[i].col, presses[i].row);
             state[i] = 1;
-        } else if (state[i] == 1 && emu_ms >= t0 + (uint64_t)opt_hold_ms) {
+        } else if (state[i] == 1 && emu_ms >= t0 + hold) {
             mmt8_key_release(presses[i].col, presses[i].row);
             state[i] = 2;
         }
@@ -295,11 +426,14 @@ static int parse_args(int argc, char *argv[], const char **rom_path)
         {"exit-after", required_argument, 0, 'x'},
         {"hold",       required_argument, 0, 'd'},
         {"screenshot", required_argument, 0, 's'},
+        {"memory",     required_argument, 0, 'm'},
+        {"fresh",      no_argument,       0, 1000},
+        {"load-syx",   required_argument, 0, 1001},
         {"help",       no_argument,       0, 'h'},
         {0, 0, 0, 0}
     };
     int c;
-    while ((c = getopt_long(argc, argv, "HSntlLi:o:p:x:d:s:h", longopts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "HSntlLi:o:p:x:d:s:m:h", longopts, NULL)) != -1) {
         switch (c) {
         case 'H': opt_headless = 1; break;
         case 'S': opt_script = 1; opt_headless = 1; opt_no_midi = 1; break;
@@ -321,6 +455,7 @@ static int parse_args(int argc, char *argv[], const char **rom_path)
                 presses[num_presses].col = col;
                 presses[num_presses].row = row;
                 presses[num_presses].at_ms = at;
+                presses[num_presses].hold_ms = 0;
                 num_presses++;
             }
             break;
@@ -328,6 +463,9 @@ static int parse_args(int argc, char *argv[], const char **rom_path)
         case 'x': opt_exit_after_ms = atol(optarg); break;
         case 'd': opt_hold_ms = atol(optarg); break;
         case 's': opt_screenshot = optarg; break;
+        case 'm': opt_memory_file = optarg; break;
+        case 1000: opt_fresh = 1; break;
+        case 1001: opt_load_syx = optarg; break;
         case 'h': usage(argv[0]); exit(0);
         default:  usage(argv[0]); return -1;
         }
@@ -387,10 +525,24 @@ int main(int argc, char *argv[])
     if (load_firmware(rom_path) < 0)
         return 1;
 
-    power_on(1);
+    /* Battery-backed memory: GUI runs persist by default, --memory forces it elsewhere. */
+    if (opt_memory_file)
+        snprintf(memory_path, sizeof memory_path, "%s", opt_memory_file);
+    else if (!opt_headless)
+        snprintf(memory_path, sizeof memory_path, "%s/memory.bin", get_data_dir());
+    int warm = 0;
+    if (memory_path[0] && !opt_fresh) {
+        memset(cpu.mExtData, 0, XDATA_SIZE);
+        warm = memory_load();
+        if (warm) printf("Memory restored from %s\n", memory_path);
+    }
+    power_on(!warm);
 
-    if (opt_script)
-        return script_mode();
+    if (opt_script) {
+        int rc = script_mode();
+        if (memory_path[0]) memory_save();
+        return rc;
+    }
 
     printf("MMT-8 Simulator starting...%s\n", opt_headless ? " (headless)" : "");
     printf("CPU reset, PC=0x%04X\n", cpu.mPC);
@@ -398,6 +550,7 @@ int main(int argc, char *argv[])
     uint64_t last_time = now_us();
     uint64_t total_cycles = 0;
     int lcd_dumped = 0;
+    int syx_pending = opt_load_syx != NULL;
 
     while (running) {
         uint64_t now = now_us();
@@ -415,6 +568,7 @@ int main(int argc, char *argv[])
         }
 
         uint64_t emu_ms = total_cycles / 1000;
+        if (syx_pending && emu_ms >= 1500) { syx_pending = 0; syx_load(opt_load_syx); }
         update_scripted_keys(emu_ms);
         pump_midi();
         if (opt_lcd_log)
@@ -436,6 +590,12 @@ int main(int argc, char *argv[])
                     running = 0;
                 } else if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE) {
                     running = 0;
+                } else if (ev.type == SDL_KEYDOWN && (ev.key.keysym.mod & KMOD_CTRL)) {
+                    if (ev.key.keysym.sym == SDLK_s) gui_dump_to_syx(emu_ms);
+                    if (ev.key.keysym.sym == SDLK_l) {
+                        const char *p = syx_newest();
+                        if (p) syx_load(p); else fprintf(stderr, "No .syx files in %s\n", get_data_dir());
+                    }
                 } else {
                     gui_handle_event(&ev);
                 }
@@ -457,6 +617,8 @@ int main(int argc, char *argv[])
 
     if (opt_screenshot && !opt_headless && gui_screenshot(opt_screenshot) == 0)
         printf("Saved screenshot to %s\n", opt_screenshot);
+    if (memory_path[0])
+        memory_save();
 
     /* Cleanup */
     if (!opt_no_midi) midi_shutdown();

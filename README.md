@@ -20,7 +20,9 @@ aconnect "Keystation:0" "MMT-8 Simulator:0"      # a keyboard -> MIDI IN
 ```
 
 Status: the firmware boots, passes its own RAM / EPROM / MIDI diagnostics,
-records and plays back MIDI, sends MIDI clock, and every button is mapped. A headless mode with scripted button presses, an LCD change log
+records and plays back MIDI, sends MIDI clock, every button is mapped (with
+keyboard shortcuts), memory persists between runs like the battery-backed
+RAM, and the SysEx memory dump can be saved to and loaded from `.syx` files. A headless mode with scripted button presses, an LCD change log
 and a MIDI byte trace makes it a convenient firmware-debugging rig as well.
 Getting this far required fixing four instruction-semantics bugs in the
 upstream emu8051 core (`MOV direct,@Ri` had its operands swapped, the auxiliary

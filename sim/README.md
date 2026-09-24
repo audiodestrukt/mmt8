@@ -114,10 +114,37 @@ Or let the simulator connect for you:
 | `-p`, `--press C,R[@MS]` | press key-matrix column `C` row `R`; optional start time in emulated ms (repeatable) |
 | `-d`, `--hold MS` | how long each scripted press is held (default 100) |
 | `-x`, `--exit-after MS` | exit after `MS` ms of emulated time and dump the LCD |
+| `-s`, `--screenshot BMP` | save the window to a BMP file at exit |
+| `-m`, `--memory FILE` | battery-backed RAM image to load at start and save at exit |
+| `--fresh` | start with empty memory, ignoring the saved image |
+| `--load-syx FILE` | replay a `.syx` memory dump into MIDI IN after boot |
+| `-S`, `--script` | deterministic stdin protocol for the spec suite (see below) |
 
 Scripted presses without `@MS` start 1.5 s after boot and are spaced 400 ms
 apart. At exit, headless runs print the LCD and UART statistics (bytes
 received, transmitted, and how many the firmware's ISR actually consumed).
+
+### Memory and backups
+
+The real MMT-8 keeps its two SRAMs alive with a battery. The simulator does
+the same with a file: in GUI mode the 64 KB XDATA image is saved to
+`~/.local/share/mmt8sim/memory.bin` on exit and restored at the next start
+as a warm boot, so parts and songs survive restarts. `--memory FILE` moves the
+image elsewhere (and enables it for headless runs), `--fresh` ignores it for
+one run. The firmware's own "clear memory" combination (ERASE + PAGE UP +
+PAGE DOWN at power-on) still works and is saved like anything else.
+
+Backups use the firmware's SysEx dump, the same one a MIDI filer would take:
+
+- **Ctrl+S** in the GUI performs TAPE, page down, RECORD for you (SEND ALL
+  PARTS & SONGS OUT MIDI) and writes the message to
+  `~/.local/share/mmt8sim/mmt8-YYYYMMDD-HHMMSS.syx`.
+- **Ctrl+L** replays the newest `.syx` in that directory into MIDI IN; the
+  firmware loads it and lands on SELECT SONG 99, as on the real unit.
+- `--load-syx FILE` does the same from the command line, 1.5 s after boot.
+
+A dump taken from a real MMT-8 over MIDI (`amidi -r`, or any SysEx librarian)
+is the same format, so the simulator can carry a real unit's memory.
 
 ### Firmware self-test
 
