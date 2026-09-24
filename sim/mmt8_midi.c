@@ -36,10 +36,10 @@ int midi_init(void)
     }
     snd_seq_set_client_name(seq, "MMT-8 Simulator");
 
-    port_in = snd_seq_create_simple_port(seq, "MIDI IN",
+    port_in = snd_seq_create_simple_port(seq, "MMT-8 MIDI IN",
         SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE,
         SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
-    port_out = snd_seq_create_simple_port(seq, "MIDI OUT",
+    port_out = snd_seq_create_simple_port(seq, "MMT-8 MIDI OUT",
         SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ,
         SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
     if (port_in < 0 || port_out < 0) {

@@ -69,8 +69,11 @@ On startup the simulator registers an ALSA sequencer client named
 
 | Port | Direction | Purpose |
 |------|-----------|---------|
-| `MIDI IN`  (port 0) | writable | the MMT-8's MIDI IN jack |
-| `MIDI OUT` (port 1) | readable | the MMT-8's MIDI OUT jack |
+| `MMT-8 MIDI IN`  (port 0) | writable | the MMT-8's MIDI IN jack |
+| `MMT-8 MIDI OUT` (port 1) | readable | the MMT-8's MIDI OUT jack |
+
+The port names carry the device name because some applications (JUCE-based
+ones such as Surge XT) list ALSA ports by port name alone.
 
 Connect them with `aconnect`, `qjackctl`, Helvum, or any other ALSA/PipeWire
 patchbay. Port names must be given numerically to `aconnect`:
