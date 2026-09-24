@@ -1,3 +1,4 @@
 *.o
 sim/mmt8sim
 sim/tests/cputest
+__pycache__/
