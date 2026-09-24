@@ -1,0 +1,34 @@
+spec: mmt8.part.next-part-and-continue
+title: While playing, + queues the next part; STOP then STOP/CONTINUE resumes at the same beat
+device: mmt8
+tags: [part, play]
+description: >
+  Manual 2.4: while a part is playing, the keypad and +/- select the NEXT
+  part, shown in the display, which plays when the current part ends.
+  STOP/CONTINUE stops and returns to the select display; pressing it again
+  begins playing from the beginning of the beat it was stopped on, whereas
+  PLAY always starts from the beginning.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 2.4
+
+given: ready
+
+steps:
+  - press: play
+  - wait: 1050ms
+  - expect: {lcd.line2: BEAT 003}            # beat 3 spans 1.0-1.5 s
+  - press: plus
+  - wait: 50ms
+  - expect: {lcd.line1: "PART 00 NEXT: 01", lcd.line2: BEAT 003}
+  - press: stop
+  - wait: 50ms
+  - expect: {lcd.line1: SELECT PART 00, led.play: false}
+  - press: stop
+  - wait: 50ms
+  - expect: {lcd.line1: PLAYING PART  00, lcd.line2: BEAT 003, led.play: true}
+  - press: play
+  - wait: 100ms
+  - expect: {lcd.line2: BEAT 001}

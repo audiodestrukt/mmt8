@@ -1,0 +1,43 @@
+spec: mmt8.click.pages-and-countdown
+title: CLICK pages set the click value, record click, play click and the count-down length
+device: mmt8
+tags: [click, record]
+description: >
+  Manual 20: holding CLICK shows CLICK VALUE (1/4 default) and RECORD CLICK
+  ON; the keypad selects the value directly. Page up reaches PLAY
+  CLICK OFF and COUNT DOWN (4 by default), which the keypad sets from 00
+  (off) to 99. With the count-down at 00, recording starts immediately.
+  Observed on the firmware: keypad 9 selects 1/48 (and 1 selects 1/2), one
+  position off the manual's "0 = 1/2 ... 9 = 1/64" table.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 20; keypad mapping as observed on firmware 1.11
+
+given: ready
+
+steps:
+  - hold:
+      keys: click
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: CLICK VALUE 1/4, lcd.line2: RECORD CLICK ON}
+        - press: digit9
+        - wait: 100ms
+        - expect: {lcd.line1: CLICK VALUE 1/48}
+        - press: pgup
+        - press: pgup
+        - wait: 100ms
+        - expect: {lcd.line1: PLAY CLICK OFF, lcd.line2: "COUNT DOWN: 04"}
+        - press: pgup
+        - press: digit0
+        - press: digit0
+        - wait: 100ms
+        - expect: {lcd.line2: "COUNT DOWN: 00"}
+  - wait: 100ms
+  - press: rec
+  - wait: 100ms
+  - press: play
+  - wait: 300ms
+  - expect: {lcd.line1: RECRDING PART 00, lcd.line2: BEAT 001}

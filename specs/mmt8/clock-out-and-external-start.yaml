@@ -1,0 +1,52 @@
+spec: mmt8.clock.out-switch-and-midi-start
+title: MIDI CLOCK OUT can be switched off; an incoming MIDI Start plays the part on MIDI clock
+device: mmt8
+tags: [clock, midi-clock]
+description: >
+  Manual 19: the CLOCK pages hold the clock source (MIDI & INTERNAL by
+  default), MIDI CLOCK OUT and AUTO START, both on by default. With MIDI
+  CLOCK OUT off nothing is sent while playing. With the default source and
+  auto start, a received MIDI Start starts the part from the beginning and
+  MIDI Stop stops it. The manual's table says it then runs on MIDI clock;
+  observed on the firmware, with no MIDI clocks arriving it keeps running at
+  the internal tempo (BEAT 005 two seconds after the Start at 120 BPM).
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 19; clocking after MIDI Start as observed on firmware 1.11
+
+given: ready
+
+steps:
+  - hold:
+      keys: clock
+      then:
+        - wait: 100ms
+        - press: pgup
+        - wait: 100ms
+        - expect: {lcd.line1: MIDI CLOCK OUT, lcd.line2: "ENABLE: ON"}
+        - press: minus
+        - wait: 100ms
+        - expect: {lcd.line2: "ENABLE: OFF"}
+  - wait: 100ms
+  - press: play
+  - wait: 1s
+  - expect: {led.play: true, midi.clock_count: 0}
+  - expect_events: {none: true}
+  - press: stop
+  - wait: 100ms
+  - hold:
+      keys: clock
+      then:
+        - press: pgup
+        - press: plus
+  - wait: 100ms
+  - press: midi_start
+  - wait: 100ms
+  - expect: {lcd.line1: PLAYING PART  00, lcd.line2: BEAT 001, led.play: true}
+  - wait: 2s
+  - expect: {lcd.line2: BEAT 005}          # runs on the internal clock, see description
+  - press: midi_stop
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT PART 00, led.play: false}

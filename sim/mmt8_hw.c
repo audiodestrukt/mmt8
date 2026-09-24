@@ -286,3 +286,6 @@ void mmt8_key_release(int col, int row)
     if (col >= 0 && col < 6 && row >= 0 && row < 8)
         key_matrix[col] &= ~(1 << row);
 }
+
+void mmt8_get_key_matrix(uint8_t out[6])     { memcpy(out, key_matrix, 6); }
+void mmt8_set_key_matrix(const uint8_t in[6]) { memcpy(key_matrix, in, 6); }

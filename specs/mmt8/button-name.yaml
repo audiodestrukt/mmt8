@@ -1,0 +1,42 @@
+spec: mmt8.buttons.name
+title: NAME edits the part name with +/- and the page buttons, saved by RECORD
+device: mmt8
+tags: [buttons, mapping, name]
+description: >
+  Manual 12: holding NAME puts the cursor under the first character of the
+  part name; +/- change that character, page up/down move the cursor, and
+  RECORD stores the name. Releasing NAME without RECORD discards the change.
+  A part that has just been used is called NO PART NAME.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 12
+
+given: recorded-part
+
+steps:
+  - expect: {lcd.line2: '" NO PART NAME "', lcd.cursor: 13}
+  - hold:
+      keys: name
+      then:
+        - wait: 100ms
+        - expect: {lcd.cursor: 17}
+        - press: plus
+        - wait: 100ms
+        - expect: {lcd.line2: '"!NO PART NAME "'}
+        - press: pgup
+        - wait: 100ms
+        - expect: {lcd.cursor: 18}
+  - wait: 100ms
+  - expect: {lcd.line2: '" NO PART NAME "', lcd.cursor: 13}     # not saved
+  - hold:
+      keys: name
+      then:
+        - wait: 100ms
+        - press: plus
+        - wait: 100ms
+        - press: rec
+        - wait: 100ms
+  - wait: 100ms
+  - expect: {lcd.line2: '"!NO PART NAME "'}                     # saved

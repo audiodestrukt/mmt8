@@ -1,0 +1,36 @@
+spec: mmt8.part.play-and-stop
+title: PLAY starts the part with the beat counter and MIDI clock; STOP returns to select
+device: mmt8
+tags: [part, play, midi-clock]
+description: >
+  Manual 2.4: pressing PLAY starts the selected part from its beginning, the
+  PLAY LED lights, the display shows PLAYING PART and the current beat, which
+  advances every quarter note (500 ms at the default 120 BPM). Manual 19: with
+  the default clock settings a MIDI Start and 24 clocks per beat are sent.
+  STOP/CONTINUE stops, sends MIDI Stop and returns to the select part display.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, sections 2.4, 17 and 19
+
+given: ready
+
+steps:
+  - press: play
+  - wait: 100ms
+  - expect:
+      lcd.line1: PLAYING PART  00
+      lcd.line2: BEAT 001
+      led.play: true
+  - expect_events: {contains: [{type: midi, status: start}]}
+  - wait: 1s
+  - expect:
+      lcd.line2: BEAT 003
+      midi.clock_count: {$approx: 53, $tol: 2}   # 1.1 s at 120 BPM = 2.2 beats x 24
+  - press: stop
+  - wait: 100ms
+  - expect:
+      lcd.line1: SELECT PART 00
+      led.play: false
+  - expect_events: {contains: [{type: midi, status: stop}]}

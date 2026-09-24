@@ -1,0 +1,26 @@
+spec: mmt8.diagnostics.self-test
+title: LOOP + QUANTIZE held at power-on runs the built-in diagnostics
+device: mmt8
+tags: [diagnostics, power]
+description: >
+  Service manual: holding LOOP and QUANTIZE while turning on the power enters
+  the self-test, which reports ALL RAM OK and EPROM OK before the LED and
+  MIDI tests.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Service Manual, self test; firmware 1.11 messages
+
+given: ready
+
+steps:
+  - hold:
+      keys: [loop, quant]
+      then:
+        - set: {control: power, value: 0}
+        - set: {control: power, value: 1}
+        - wait: 1s
+        - expect: {lcd.line1: MMT8 DIAGNOSTICS, lcd.line2: ALL RAM OK}
+        - wait: 2s
+        - expect: {lcd.line2: EPROM OK}

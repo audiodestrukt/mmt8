@@ -1,0 +1,40 @@
+spec: mmt8.tempo.set
+title: TEMPO shows the tempo; +/- and three keypad digits change it immediately
+device: mmt8
+tags: [tempo, midi-clock]
+description: >
+  Manual 17: while holding TEMPO, +/- select a new tempo or three digits enter
+  one directly; changes take effect at once without RECORD. At 60 BPM a beat
+  lasts a second and 24 MIDI clocks are sent per beat.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 17
+
+given: ready
+
+steps:
+  - hold:
+      keys: tempo
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: TEMPO = 120, lcd.line2: BEATS PER MINUTE}
+        - press: plus
+        - wait: 100ms
+        - expect: {lcd.line1: TEMPO = 121}
+        - press: minus
+        - press: minus
+        - wait: 100ms
+        - expect: {lcd.line1: TEMPO = 119}
+        - press: digit0
+        - press: digit6
+        - press: digit0
+        - wait: 100ms
+        - expect: {lcd.line1: TEMPO = 060}
+  - wait: 100ms
+  - press: play
+  - wait: 950ms
+  - expect: {lcd.line2: BEAT 002, midi.clock_count: {$approx: 25, $tol: 2}}
+  - wait: 1s
+  - expect: {lcd.line2: BEAT 003, midi.clock_count: {$approx: 49, $tol: 2}}

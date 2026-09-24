@@ -1,0 +1,30 @@
+spec: mmt8.buttons.part-song
+title: SONG and PART switch modes and their LEDs
+device: mmt8
+tags: [buttons, mapping, song, part]
+description: >
+  Manual 9.1 and 2.2: SONG enters song mode (SONG LED, SELECT SONG display,
+  EMPTY SONG for an unused song); PART returns to part mode with the PART LED.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, sections 2.2 and 9.1
+
+given: ready
+
+steps:
+  - expect: {led.part: true, led.song: false}
+  - press: song
+  - wait: 100ms
+  - expect:
+      lcd.line1: SELECT SONG 00
+      lcd.line2: '"  EMPTY SONG  "'
+      led.song: true
+      led.part: false
+  - press: part
+  - wait: 100ms
+  - expect:
+      lcd.line1: SELECT PART 00
+      led.part: true
+      led.song: false

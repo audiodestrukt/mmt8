@@ -1,0 +1,56 @@
+spec: mmt8.copy.part
+title: COPY + RECORD appends a part to itself (doubling it) or to another part
+device: mmt8
+tags: [copy]
+description: >
+  Manual 6.1-6.2: holding COPY shows COPY FROM PART nn TO PART nn; RECORD
+  appends the source to the destination (COPY COMPLETE while held). Copying a
+  part to itself doubles its length. Entering a two digit part number while
+  holding COPY selects another destination; an empty destination becomes an
+  exact copy.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, sections 6.1 and 6.2
+
+given: recorded-part
+
+steps:
+  - hold:
+      keys: copy
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: COPY FROM PART, lcd.line2: 00 TO PART 00}
+        - hold:
+            keys: rec
+            then:
+              - wait: 100ms
+              - expect: {lcd.line1: COPY COMPLETE}
+  - wait: 100ms
+  - hold:
+      keys: length
+      then:
+        - wait: 100ms
+        - expect: {lcd.line2: LENGTH 004 BEATS}
+  - hold:
+      keys: copy
+      then:
+        - wait: 100ms
+        - press: digit0
+        - press: digit1
+        - wait: 100ms
+        - expect: {lcd.line2: 00 TO PART 01}
+        - press: rec
+  - wait: 100ms
+  - press: plus
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT PART 01, lcd.line2: '" NO PART NAME "'}
+  - hold:
+      keys: length
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: PART 01, lcd.line2: LENGTH 004 BEATS}
+  - press: play
+  - wait: 600ms
+  - expect_events: {contains: [{type: midi, status: note_on, note: 60}]}

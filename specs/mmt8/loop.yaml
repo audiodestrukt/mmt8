@@ -1,0 +1,37 @@
+spec: mmt8.loop.part-loops-or-stops
+title: A part stops at its end unless LOOP is on, in which case it plays again from the start
+device: mmt8
+tags: [loop, play]
+description: >
+  Manual 2.4 and 10: when a part reaches its end the PLAY LED turns off and
+  it stops, unless LOOP is on, which makes it continue from the beginning.
+  The fixture part is 2 beats long (1 s at 120 BPM) with a note at beat 1.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, sections 2.4 and 10
+
+given: recorded-part
+
+steps:
+  - press: play
+  - wait: 600ms
+  - expect: {led.play: true, lcd.line1: PLAYING PART  00}
+  - wait: 1200ms
+  - expect: {led.play: false, lcd.line1: SELECT PART 00}
+  - expect_events:
+      contains:
+        - {type: midi, status: note_on, note: 60}
+        - {type: midi, status: stop}
+  - press: loop
+  - wait: 100ms
+  - expect: {led.loop: true}
+  - press: play
+  - wait: 2600ms
+  - expect: {led.play: true, lcd.line1: PLAYING PART  00}
+  - expect_events:
+      contains:
+        - {type: midi, status: note_on, note: 60}
+        - {type: midi, status: note_on, note: 60}
+        - {type: midi, status: note_on, note: 60}

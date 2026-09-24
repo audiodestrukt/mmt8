@@ -1,0 +1,37 @@
+spec: mmt8.buttons.keypad
+title: Each keypad digit enters its value (pins the keypad matrix positions)
+device: mmt8
+tags: [buttons, mapping, keypad]
+description: >
+  Manual 17: while holding TEMPO, a tempo can be entered with three digits on
+  the keypad. The first digit replaces the display, which is enough to tell
+  the ten digits apart and pin each one's matrix position.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 17
+
+given: ready
+
+cases:
+  - {d: 0}
+  - {d: 1}
+  - {d: 2}
+  - {d: 3}
+  - {d: 4}
+  - {d: 5}
+  - {d: 6}
+  - {d: 7}
+  - {d: 8}
+  - {d: 9}
+
+steps:
+  - hold:
+      keys: tempo
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: TEMPO = 120}
+        - press: digit${d}
+        - wait: 100ms
+        - expect: {lcd.line1: "TEMPO = ${d}"}

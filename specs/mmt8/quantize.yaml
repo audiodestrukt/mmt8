@@ -1,0 +1,46 @@
+spec: mmt8.quantize.note-start
+title: QUANTIZE moves note starts to the grid and keeps the release point
+device: mmt8
+tags: [quantize, edit]
+description: >
+  Manual 15: holding QUANTIZE shows the value (1/16 by default) and NOTE
+  START; +/- or the keypad choose the value and RECORD quantizes (QUANTIZE
+  DONE while held). The note start moves to the nearest grid point while the
+  release stays, so the duration changes. The fixture note starts a few
+  ticks after beat 1 and shows as 001/08 in EDIT; after quantizing to 1/2 it
+  is at 001/00 with a longer duration.
+  Observed on the firmware: keypad 1 selects 1/2, whereas the manual's table
+  says 0 = 1/2 and 9 = 1/64.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 15; keypad mapping as observed on firmware 1.11
+
+given: recorded-part
+
+steps:
+  - press: edit
+  - wait: 100ms
+  - expect: {lcd.line1: {$in: ["001/08: C3   100", "001/07: C3   100", "001/09: C3   100"]}}
+  - press: edit
+  - wait: 100ms
+  - hold:
+      keys: quant
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: QUANTIZE TO 1/16, lcd.line2: NOTE START}
+        - press: digit1
+        - wait: 100ms
+        - expect: {lcd.line1: QUANTIZE TO 1/2}
+        - hold:
+            keys: rec
+            then:
+              - wait: 100ms
+              - expect: {lcd.line1: QUANTIZE DONE}
+  - wait: 100ms
+  - press: edit
+  - wait: 100ms
+  - expect:
+      lcd.line1: "001/00: C3   100"
+      lcd.line2: {$in: ["000/57  CHAN 01", "000/56  CHAN 01", "000/58  CHAN 01"]}

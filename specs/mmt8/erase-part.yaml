@@ -1,0 +1,35 @@
+spec: mmt8.erase.part
+title: Holding ERASE and pressing RECORD erases the part
+device: mmt8
+tags: [erase]
+description: >
+  Manual 5.1: in PART mode holding ERASE shows ERASE PART nn; pressing RECORD
+  erases it (ERASE COMPLETE while RECORD is held). Afterwards the part is
+  empty again and has no length.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 5.1
+
+given: recorded-part
+
+steps:
+  - expect: {lcd.line2: '" NO PART NAME "'}
+  - hold:
+      keys: erase
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: ERASE PART  00}
+        - hold:
+            keys: rec
+            then:
+              - wait: 100ms
+              - expect: {lcd.line1: ERASE COMPLETE}
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT PART 00, lcd.line2: '"  EMPTY PART  "'}
+  - hold:
+      keys: length
+      then:
+        - wait: 100ms
+        - expect: {lcd.line2: LENGTH 000 BEATS}

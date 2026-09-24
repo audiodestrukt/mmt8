@@ -1,0 +1,36 @@
+spec: mmt8.buttons.edit
+title: EDIT toggles event editing of the recorded track and its LED
+device: mmt8
+tags: [buttons, mapping, edit]
+description: >
+  Manual 7 and 7.1: EDIT is an on/off switch with an LED. In part mode it
+  shows the selected track's MIDI events: beat, sub-beat, note, velocity,
+  duration and channel. With the recorded-part fixture (C3 at beat 1, about
+  half a beat long) the first event is shown; >> steps to END OF TRACK.
+  Pressing EDIT again turns it off.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, sections 7 and 7.1
+
+given: recorded-part
+
+steps:
+  - expect: {led.edit: false}
+  - press: edit
+  - wait: 100ms
+  - expect:
+      led.edit: true
+      lcd.line1: {$in: ["001/08: C3   100", "001/07: C3   100", "001/09: C3   100"]}
+      lcd.line2: {$in: ["000/49  CHAN 01", "000/48  CHAN 01", "000/50  CHAN 01"]}
+      led.track.1: true          # only the edited track is lit
+      led.track.2: false
+  - press: ff
+  - wait: 100ms
+  - expect: {lcd.line1: END OF TRACK}
+  - press: edit
+  - wait: 100ms
+  - expect:
+      led.edit: false
+      lcd.line1: SELECT PART 00

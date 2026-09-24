@@ -1,0 +1,43 @@
+spec: mmt8.buttons.function-pages
+title: Each held function button shows its page (pins the button matrix)
+device: mmt8
+tags: [buttons, mapping]
+description: >
+  The function buttons only act while held and each shows a distinctive page.
+  One case per button pins its position in the 6x8 keyboard matrix, since the
+  simulator maps the control name through that matrix to the firmware's scan.
+  Expected texts are from the manual chapters for each button, as the
+  firmware actually formats them on the 2x16 display.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, sections 3.1, 4, 5, 6, 13-21 and 25.1
+
+given: ready
+
+cases:
+  - {button: rec,    line1: SELECT THE TRACK, line2: TO RECORD ON}
+  - {button: length, line1: PART 00,          line2: LENGTH 000 BEATS}
+  - {button: erase,  line1: ERASE PART  00,   line2: ""}
+  - {button: copy,   line1: COPY FROM PART,   line2: 00 TO PART 00}
+  - {button: merge,  line1: SELECT 2 TRACKS,  line2: TO BE MERGED}
+  - {button: midich, line1: SET MIDI CHANNEL, line2: UNCHANGED}
+  - {button: quant,  line1: QUANTIZE TO 1/16, line2: NOTE START}
+  - {button: trans,  line1: TRANSPOSE UP,     line2: 00 SEMITONES}
+  - {button: tempo,  line1: TEMPO = 120,      line2: BEATS PER MINUTE}
+  - {button: filter, line1: RECORD MIDI,      line2: "NOTES:       ON"}
+  - {button: clock,  line1: "CLOCK SOURCE:",  line2: MIDI & INTERNAL}
+  - {button: click,  line1: CLICK VALUE 1/4,  line2: RECORD CLICK ON}
+  - {button: tape,   line1: SAVE ALL PARTS &, line2: SONGS TO TAPE}
+
+steps:
+  - hold:
+      keys: "${button}"
+      then:
+        - wait: 100ms
+        - expect:
+            lcd.line1: "${line1}"
+            lcd.line2: "${line2}"
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT PART 00}

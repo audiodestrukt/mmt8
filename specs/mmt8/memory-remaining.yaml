@@ -1,0 +1,23 @@
+spec: mmt8.memory.remaining
+title: Holding RECORD and pressing LENGTH shows the remaining memory
+device: mmt8
+tags: [memory, buttons]
+description: Manual 25.1. With empty memory it reads 100 percent.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 25.1
+
+given: ready
+
+steps:
+  - hold:
+      keys: rec
+      then:
+        - wait: 100ms
+        - hold:
+            keys: length
+            then:
+              - wait: 100ms
+              - expect: {lcd.line1: REMAINING MEMORY, lcd.line2: 100 PERCENT}

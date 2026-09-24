@@ -1,0 +1,55 @@
+spec: mmt8.record.first-track
+title: RECORD then PLAY counts down four beats, records track 1 and STOP sets the length
+device: mmt8
+tags: [record, midi]
+description: >
+  Manual 3.1-3.2: RECORD selects track 1 on an empty part and lights the
+  RECORD LED. PLAY then counts down four beats (COUNT DOWN 4, 3, 2, 1, one per
+  beat at 120 BPM) before recording from beat 1. Recording the first track of
+  an empty part continues until STOP, which sets the part length rounded to
+  the nearest beat; the part is then named NO PART NAME. Playing the part
+  back sends the recorded note.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, sections 3.1, 3.2 and 4
+
+given: ready
+
+steps:
+  - press: rec
+  - wait: 100ms
+  - expect: {led.rec: true}
+  - press: play
+  - wait: 200ms
+  - expect: {lcd.line1: RECRDING PART 00, lcd.line2: COUNT DOWN-- 04, led.rec: true}
+  - wait: 500ms
+  - expect: {lcd.line2: COUNT DOWN-- 03}
+  - wait: 1500ms
+  - expect: {lcd.line2: BEAT 001, led.play: true}
+  - down: midi_note60
+  - wait: 250ms
+  - up: midi_note60
+  - wait: 1250ms
+  - press: stop
+  - wait: 200ms
+  - expect:
+      lcd.line1: SELECT PART 00
+      lcd.line2: '" NO PART NAME "'
+      led.rec: false
+  - hold:
+      keys: length
+      then:
+        - wait: 100ms
+        - expect: {lcd.line2: {$in: [LENGTH 002 BEATS, LENGTH 003 BEATS]}}
+  - wait: 100ms
+  - expect: {midi.note_count: 0}    # nothing was echoed while recording
+  - press: play
+  - wait: 700ms
+  - expect_events:
+      contains:
+        - {type: midi, status: start}
+        - {type: midi, status: note_on, channel: 1, note: 60, velocity: 100}
+        - {type: midi, status: note_off, channel: 1, note: 60}
+  - expect: {midi.note_count: 1}

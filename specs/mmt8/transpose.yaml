@@ -1,0 +1,35 @@
+spec: mmt8.transpose.up-semitones
+title: TRANSPOSE with a two digit semitone count and RECORD moves the notes
+device: mmt8
+tags: [transpose]
+description: >
+  Manual 16: holding TRANSPOSE shows TRANSPOSE UP nn SEMITONES; the keypad
+  enters the amount and RECORD executes it (TRANSPOSE DONE while held). The
+  recorded C3 (60) transposed up 12 plays back as 72.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 16
+
+given: recorded-part
+
+steps:
+  - hold:
+      keys: trans
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: TRANSPOSE UP, lcd.line2: 00 SEMITONES}
+        - press: digit1
+        - press: digit2
+        - wait: 100ms
+        - expect: {lcd.line2: 12 SEMITONES}
+        - hold:
+            keys: rec
+            then:
+              - wait: 100ms
+              - expect: {lcd.line1: TRANSPOSE DONE}
+  - wait: 100ms
+  - press: play
+  - wait: 600ms
+  - expect_events: {contains: [{type: midi, status: note_on, note: 72}]}

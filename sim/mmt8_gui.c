@@ -5,6 +5,7 @@
 #include "emu8051.h"
 #include "mmt8_hw.h"
 #include "mmt8_gui.h"
+#include "mmt8_keys.h"
 
 /* ---- Window dimensions ---- */
 #define WIN_W 820
@@ -49,7 +50,7 @@ typedef struct {
     int col;          /* keyboard matrix column */
     int row;          /* keyboard matrix row */
     int pressed;
-    int led_src;      /* LED_NONE, LED_TRACK (led_data, active high) or LED_STATUS (status latch, active low) */
+    int led_src;      /* LED_NONE, LED_TRACK (led_data latch) or LED_STATUS (status latch); both active low */
     int led_bit;      /* bit number within that latch */
     int led_red;      /* 1 = red LED (REC), else green */
 } button_t;
@@ -78,43 +79,26 @@ static int num_buttons;
 /* ---- Button layout helpers ---- */
 
 static void add_button(int x, int y, int w, int h,
-                       const char *label, int col, int row,
+                       const char *label, const char *key,
                        int led_src, int led_bit, int led_red)
 {
     if (num_buttons >= MAX_BUTTONS) return;
+    const mmt8_key_t *k = mmt8_key_find(key);
+    if (!k) { fprintf(stderr, "GUI: unknown key '%s'\n", key); return; }
     button_t *b = &buttons[num_buttons++];
     b->rect = (SDL_Rect){x, y, w, h};
     b->label = label;
-    b->col = col;
-    b->row = row;
+    b->col = k->col;
+    b->row = k->row;
     b->pressed = 0;
     b->led_src = led_src;
     b->led_bit = led_bit;
     b->led_red = led_red;
 }
 
-/*
- * Keyboard matrix mapping, determined empirically by pressing every
- * column/row position in the headless simulator (--press C,R) and watching
- * the firmware's LCD and LED latches respond:
- *
- *   col 0: <<  >>  ERASE  TRANS  PLAY  STOP  COPY  REC
- *   col 1: track 1 .. track 8
- *   col 2: TEMPO  -  +  ?  ?  ?  PAGE UP  PAGE DOWN
- *   col 3: CLICK  6  7  8  9  0  MIDI CH  TAPE
- *   col 4: CLOCK  1  2  3  4  5  SONG  MERGE
- *   col 5: FILTER  ECHO  LOOP  QUANT  LENGTH  ?  ?  PART
- *
- * PAGE UP/DOWN come from the boot-time "erase all" check (ERASE + PAGE UP +
- * PAGE DOWN held at power-on). EDIT and NAME have not been located yet: they
- * do nothing visible on an empty part; (5,5) and (5,6) are the likely
- * candidates and are wired to those positions provisionally.
- *
- * LEDs: the track LEDs are bits 0-7 of the LED data latch (0xFF02, active
- * high). The mode/transport LEDs are in the status latch (0xFF04, active
- * low): bit 0 PLAY, bit 1 REC, bit 2 PART, bit 3 EDIT (assumed), bit 4 SONG,
- * bit 5 ECHO, bit 6 LOOP.
- */
+/* Button layout. Matrix positions come from mmt8_keys.c; LED sources:
+ * track LEDs are bits of the LED data latch, the mode and transport LEDs
+ * are bits of the status latch. Both latches are active low. */
 static void init_buttons(void)
 {
     int bw = 52, bh = 28;    /* standard button size */
@@ -127,45 +111,46 @@ static void init_buttons(void)
     /* --- Row 1: Mode buttons (y=20) --- */
     int y = 20;
     int x = 260;
-    add_button(x, y, bw, bh, "PART",  5, 7, LED_STATUS, 2, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "EDIT",  5, 5, LED_STATUS, 3, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "SONG",  4, 6, LED_STATUS, 4, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "NAME",  5, 6, LED_NONE,   0, 0);  x += bw + gap + 12;
-    add_button(x, y, bw, bh, "PG UP", 2, 6, LED_NONE,   0, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "PG DN", 2, 7, LED_NONE,   0, 0);
+    add_button(x, y, bw, bh, "PART", "PART", LED_STATUS, 2, 0);  x += bw + gap;
+    add_button(x, y, bw, bh, "EDIT", "EDIT", LED_STATUS, 3, 0);  x += bw + gap;
+    add_button(x, y, bw, bh, "SONG", "SONG", LED_STATUS, 4, 0);  x += bw + gap;
+    add_button(x, y, bw, bh, "NAME", "NAME", LED_NONE,   0, 0);  x += bw + gap + 12;
+    add_button(x, y, bw, bh, "PG UP", "PGUP", LED_NONE,   0, 0);  x += bw + gap;
+    add_button(x, y, bw, bh, "PG DN", "PGDN", LED_NONE,   0, 0);
 
     /* --- Row 2: Function buttons (y=60) --- */
     y = 60;
     x = 260;
-    add_button(x, y, bw, bh, "CLICK",  3, 0, LED_NONE, 0, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "COPY",   0, 6, LED_NONE, 0, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "ERASE",  0, 2, LED_NONE, 0, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "TEMPO",  2, 0, LED_NONE, 0, 0);
+    add_button(x, y, bw, bh, "CLICK", "CLICK", LED_NONE, 0, 0);  x += bw + gap;
+    add_button(x, y, bw, bh, "COPY", "COPY", LED_NONE, 0, 0);  x += bw + gap;
+    add_button(x, y, bw, bh, "ERASE", "ERASE", LED_NONE, 0, 0);  x += bw + gap;
+    add_button(x, y, bw, bh, "TEMPO", "TEMPO", LED_NONE, 0, 0);
 
     /* --- Row 3: More functions (y=100) --- */
     y = 100;
     x = 20;
-    add_button(x, y, bw, bh, "LOOP",     5, 2, LED_STATUS, 6, 0);  x += bw + gap;
-    add_button(x, y, bw+12, bh, "ECHO",  5, 1, LED_STATUS, 5, 0);  x += bw + 12 + gap;
-    add_button(x, y, bw, bh, "LENGTH",   5, 4, LED_NONE, 0, 0);    x += bw + gap;
-    add_button(x, y, bw, bh, "MERGE",    4, 7, LED_NONE, 0, 0);
+    add_button(x, y, bw, bh, "LOOP", "LOOP", LED_STATUS, 6, 0);  x += bw + gap;
+    add_button(x, y, bw+12, bh, "ECHO", "ECHO", LED_STATUS, 5, 0);  x += bw + 12 + gap;
+    add_button(x, y, bw, bh, "LENGTH", "LENGTH", LED_NONE, 0, 0);    x += bw + gap;
+    add_button(x, y, bw, bh, "MERGE", "MERGE", LED_NONE, 0, 0);
 
     /* --- Row 4: Even more functions (y=140) --- */
     y = 140;
     x = 20;
-    add_button(x, y, bw, bh, "QUANT",     5, 3, LED_NONE, 0, 0);  x += bw + gap;
-    add_button(x, y, bw+4, bh, "TRANS",   0, 3, LED_NONE, 0, 0);  x += bw + 4 + gap;
-    add_button(x, y, bw+4, bh, "FILTER",  5, 0, LED_NONE, 0, 0);  x += bw + 4 + gap;
-    add_button(x, y, bw+4, bh, "MIDI CH", 3, 6, LED_NONE, 0, 0);  x += bw + 4 + gap;
-    add_button(x, y, bw, bh, "CLOCK",     4, 0, LED_NONE, 0, 0);  x += bw + gap;
-    add_button(x, y, bw, bh, "TAPE",      3, 7, LED_NONE, 0, 0);
+    add_button(x, y, bw, bh, "QUANT", "QUANT", LED_NONE, 0, 0);  x += bw + gap;
+    add_button(x, y, bw+4, bh, "TRANS", "TRANS", LED_NONE, 0, 0);  x += bw + 4 + gap;
+    add_button(x, y, bw+4, bh, "FILTER", "FILTER", LED_NONE, 0, 0);  x += bw + 4 + gap;
+    add_button(x, y, bw+4, bh, "MIDI CH", "MIDICH", LED_NONE, 0, 0);  x += bw + 4 + gap;
+    add_button(x, y, bw, bh, "CLOCK", "CLOCK", LED_NONE, 0, 0);  x += bw + gap;
+    add_button(x, y, bw, bh, "TAPE", "TAPE", LED_NONE, 0, 0);
 
     /* --- Track buttons with LEDs (y=200): column 1, rows 0-7 --- */
     y = 200;
     x = 20;
     for (int i = 0; i < 8; i++) {
         static const char *labels[] = {"1","2","3","4","5","6","7","8"};
-        add_button(x, y, tw, th, labels[i], 1, i, LED_TRACK, i, 0);
+        static const char *keys[] = {"T1","T2","T3","T4","T5","T6","T7","T8"};
+        add_button(x, y, tw, th, labels[i], keys[i], LED_TRACK, i, 0);
         x += tw + gap;
     }
 
@@ -174,28 +159,25 @@ static void init_buttons(void)
     x = 20;
     {
         static const char *labels[] = {"0","1","2","3","4","5","6","7","8","9"};
-        /* 0 = (3,5); 1-5 = column 4 rows 1-5; 6-9 = column 3 rows 1-4 */
-        static const int dcol[10] = {3, 4, 4, 4, 4, 4, 3, 3, 3, 3};
-        static const int drow[10] = {5, 1, 2, 3, 4, 5, 1, 2, 3, 4};
         for (int i = 0; i < 10; i++) {
-            add_button(x, y, nw, nh, labels[i], dcol[i], drow[i], LED_NONE, 0, 0);
+            add_button(x, y, nw, nh, labels[i], labels[i], LED_NONE, 0, 0);
             x += nw + gap;
         }
     }
 
     /* --- +/- buttons --- */
     x += gap;
-    add_button(x, y, nw, nh, "+", 2, 2, LED_NONE, 0, 0);  x += nw + gap;
-    add_button(x, y, nw, nh, "-", 2, 1, LED_NONE, 0, 0);
+    add_button(x, y, nw, nh, "+", "PLUS", LED_NONE, 0, 0);  x += nw + gap;
+    add_button(x, y, nw, nh, "-", "MINUS", LED_NONE, 0, 0);
 
     /* --- Transport buttons (y=330) --- */
     y = 330;
     x = 20;
-    add_button(x, y, bw, bh, "<<",    0, 0, LED_NONE, 0, 0);    x += bw + gap;
-    add_button(x, y, bw, bh, ">>",    0, 1, LED_NONE, 0, 0);    x += bw + gap + 20;
-    add_button(x, y, bw, bh, "PLAY",  0, 4, LED_STATUS, 0, 0);  x += bw + gap;
-    add_button(x, y, bw+8, bh, "STOP", 0, 5, LED_NONE, 0, 0);   x += bw + 8 + gap;
-    add_button(x, y, bw, bh, "REC",   0, 7, LED_STATUS, 1, 1);
+    add_button(x, y, bw, bh, "<<", "REW", LED_NONE, 0, 0);    x += bw + gap;
+    add_button(x, y, bw, bh, ">>", "FF", LED_NONE, 0, 0);    x += bw + gap + 20;
+    add_button(x, y, bw, bh, "PLAY", "PLAY", LED_STATUS, 0, 0);  x += bw + gap;
+    add_button(x, y, bw+8, bh, "STOP", "STOP", LED_NONE, 0, 0);   x += bw + 8 + gap;
+    add_button(x, y, bw, bh, "REC", "REC", LED_STATUS, 1, 1);
 }
 
 /* Find which button contains point (x,y) */
@@ -292,9 +274,10 @@ static void render_buttons(void)
         if (b->led_src != LED_NONE) {
             int cx = b->rect.x + b->rect.w / 2;
             int cy = b->rect.y - LED_RADIUS - 3;
+            /* both latches are active low: a cleared bit lights the LED */
             int on = (b->led_src == LED_TRACK)
-                   ?  (led_d >> b->led_bit) & 1          /* active high */
-                   : !((led_s >> b->led_bit) & 1);       /* active low  */
+                   ? !((led_d >> b->led_bit) & 1)
+                   : !((led_s >> b->led_bit) & 1);
 
             if (b->led_red) {
                 /* Red LED (REC) */

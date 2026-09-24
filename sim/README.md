@@ -15,8 +15,8 @@ Working:
 - Firmware boots, runs its main loop and passes its own built-in diagnostics
   (RAM, EPROM checksum, LED, MIDI loopback).
 - LCD, the eight track LEDs and the mode/transport LEDs.
-- Every front-panel button except EDIT and NAME has a verified matrix
-  position (see [Keyboard matrix](#keyboard-matrix-6-columns-x-8-rows)).
+- Every front-panel button has a verified matrix position, pinned by the
+  behaviour specs (see [Keyboard matrix](#keyboard-matrix-6-columns-x-8-rows)).
 - MIDI IN and MIDI OUT through ALSA. Real-time recording, playback, MIDI
   clock/start/stop output and MIDI ECHO all work: record a phrase from a
   keyboard, press STOP, press PLAY and it comes back out.
@@ -25,7 +25,7 @@ Working:
 
 Not implemented: tape sync in/out (the self-test's TAPE step reports an
 error), the footswitch input, the metronome click output, LCD custom
-characters, and the EDIT / NAME button positions.
+characters.
 
 ## Building
 
@@ -47,6 +47,7 @@ sudo apt install libsdl2-dev libsdl2-ttf-dev libasound2-dev
 cd sim
 make          # builds ./mmt8sim
 make test     # builds and runs tests/cputest (emu8051 core self-check)
+make spec     # from the repo root: runs the behaviour specs in specs/mmt8 (see below)
 ```
 
 ## Running
@@ -207,7 +208,7 @@ serves as the LCD RS pin. Normal SRAM occupies 0x0000–0xFEFF.
 | Address  | Device       | Direction  | Function                     |
 |----------|-------------|------------|------------------------------|
 | `0xFF00` | HC574       | Write      | LED control latch (always 1 after boot) |
-| `0xFF02` | HC574       | Write      | Track LEDs 1–8 (bit n = track n+1, active high) |
+| `0xFF02` | HC574       | Write      | Track LEDs 1–8 (bit n = track n+1, active low) |
 | `0xFF04` | HC574       | Read/Write | Mode/transport LED latch (active low, see below) |
 | `0xFF06` | U8 HC574    | Write      | Keyboard column select       |
 | `0xFF08` | LCD HD44780 | Write      | LCD command register (RS=0)  |
@@ -228,12 +229,13 @@ light the LED:
 | 0 | PLAY |
 | 1 | RECORD |
 | 2 | PART |
-| 3 | EDIT (assumed) |
+| 3 | EDIT |
 | 4 | SONG |
 | 5 | MIDI ECHO |
 | 6 | LOOP |
 
-The track LEDs come from `0xFF02` and are active high. The GUI reads both
+The track LEDs come from `0xFF02` and are active low as well: at rest all
+eight are lit (all tracks on) and a track button clears one. The GUI reads both
 latches every frame (`mmt8_get_led_data()`, `mmt8_get_status_latch()`).
 
 #### HD44780 LCD Emulation
@@ -283,12 +285,13 @@ what the firmware did:
 | 2 | TEMPO | `-` | `+` | – | – | – | PAGE UP | PAGE DOWN |
 | 3 | CLICK | 6 | 7 | 8 | 9 | 0 | MIDI CHANNEL | TAPE |
 | 4 | CLOCK | 1 | 2 | 3 | 4 | 5 | SONG | MERGE |
-| 5 | MIDI FILTER | MIDI ECHO | LOOP | QUANTIZE | LENGTH | ? | ? | PART |
+| 5 | MIDI FILTER | MIDI ECHO | LOOP | QUANTIZE | LENGTH | PART | EDIT | NAME |
 
 PAGE UP / PAGE DOWN were identified from the boot-time "clear memory" check
-(ERASE + PAGE UP + PAGE DOWN). EDIT and NAME do nothing visible on an empty
-part and have not been pinned down; the GUI provisionally wires them to (5,5)
-and (5,6). The mapping lives in `mmt8_gui.c:init_buttons()`.
+(ERASE + PAGE UP + PAGE DOWN); EDIT and NAME only respond on a part that has
+data. The three unused positions in column 2 do nothing. The table lives in
+`mmt8_keys.c` and every position is pinned by the `button-*.yaml` specs in
+`specs/mmt8` (see [Behaviour specs](#behaviour-specs-panelspec)).
 
 #### UART (MIDI)
 
@@ -353,6 +356,51 @@ The main loop:
 5. Applies scripted key presses, pumps MIDI, logs the LCD if asked
 6. Polls SDL events and renders (GUI mode) or sleeps 1 ms (headless)
 
+## Behaviour specs (panelspec)
+
+`specs/mmt8/` describes the MMT-8 as physical inputs and observable results,
+one behaviour per file, in the [panelspec](https://github.com/audiodestrukt/hexatrack)
+format (`docs/spec-format.md` there is the reference). Each spec cites the
+manual chapter it comes from. The suite runs against the original firmware in
+this simulator, so a passing spec is as good as a check on real hardware:
+
+```
+cargo install --git https://github.com/audiodestrukt/hexatrack panelspec
+make spec                       # from the repo root: lint, then run everything
+panelspec run -a "python3 sim/adapters/mmt8_sim.py" specs/mmt8 --tag buttons
+```
+
+What is covered:
+
+- `button-*.yaml` pin every front-panel button's matrix position by an
+  observable effect (a held page, an LED, a keypad digit); this is what makes
+  the mapping in `mmt8_keys.c` verified rather than guessed.
+- The rest follow the manual: part selection, PLAY / STOP / CONTINUE, next
+  part, recording with count-down, LENGTH, ERASE, COPY, LOOP, MIDI ECHO,
+  NAME, EDIT, MIDI CHANNEL, TRANSPOSE, QUANTIZE, TEMPO and MIDI clock, CLICK
+  pages, MIDI FILTER, CLOCK pages and external MIDI start, autolocate, song
+  editing and playback, memory across a power cycle, the clear-memory combo
+  and the diagnostic self-test.
+
+`specs/mmt8/vocab.yaml` is the vocabulary: the buttons, a virtual MIDI
+keyboard on MIDI IN (`midi_note60`, `midi_cc7`, `midi_program`, `midi_start`,
+`midi_clock`, ...), a `power` switch, the LCD lines and cursor, the LEDs, MIDI
+clock and message counters, and MIDI OUT messages as events.
+
+`sim/adapters/mmt8_sim.py` is the adapter. It speaks the panelspec JSON
+protocol on stdin/stdout and drives `mmt8sim --script`, a deterministic mode
+with no window, no ALSA and no wall clock: one command per line (`wait`,
+`press`, `release`, `midi`, `reset cold|warm`, `lcd`, `leds`, `midiout`,
+`quit`), one reply per command. Time only moves on `wait`, so a full run takes
+seconds and always gives the same answer. A pressed key is held for at least
+50 ms before release so the firmware's keyboard scan sees it, as any physical
+tap would be.
+
+Writing a new spec: run the gesture once with a guessed expectation; the
+runner prints what the firmware actually showed, which becomes the spec. If
+the firmware disagrees with the manual, keep the manual's claim in the
+description and record what the firmware does (see `quantize.yaml`).
+
 ## Debugging the firmware with the simulator
 
 The headless options make it easy to script experiments and to see what the
@@ -377,7 +425,6 @@ that should only have read it.
 
 ## Known Limitations and Future Work
 
-- **EDIT and NAME** buttons are not yet located in the matrix.
 - **Tape sync, footswitch, click output** are not emulated; the self-test's
   TAPE step fails.
 - **Timer/interrupt accuracy** — emu8051's built-in timer handling covers

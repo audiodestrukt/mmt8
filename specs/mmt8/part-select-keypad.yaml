@@ -1,0 +1,30 @@
+spec: mmt8.part.select-with-keypad
+title: Two keypad digits select a part; an incomplete entry reverts after 2 seconds
+device: mmt8
+tags: [part, keypad]
+description: >
+  Manual 2.3: after one digit the display waits for the second digit (the
+  cursor moves to it); after the second digit the new part is selected. If
+  the second digit is not entered within 2 seconds the display reverts to the
+  previous part number.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 2.3
+
+given: ready
+
+steps:
+  - expect: {lcd.line1: SELECT PART 00, lcd.cursor: 13}
+  - press: digit1
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT PART 1, lcd.cursor: 14}
+  - press: digit2
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT PART 12, lcd.cursor: 13}
+  - press: digit3
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT PART 3}
+  - wait: 2500ms
+  - expect: {lcd.line1: SELECT PART 12, lcd.cursor: 13}

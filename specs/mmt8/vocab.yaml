@@ -1,0 +1,92 @@
+# yaml-language-server: $schema=../../../hexatrack/schema/vocab.schema.json
+# The Alesis MMT-8 as physical inputs and observable results. Run against the
+# original v1.11 firmware in the hardware simulator:
+#   panelspec run -a "python3 sim/adapters/mmt8_sim.py" specs/mmt8
+device: mmt8
+title: Alesis MMT-8 Multi-Track MIDI Recorder (firmware 1.11)
+profiles: [mmt8]
+clock: [ms]
+
+controls:
+  # transport
+  play: button
+  stop: {kind: button, doc: STOP/CONTINUE}
+  rec: {kind: button, doc: RECORD}
+  rew: {kind: button, doc: "<< rewind"}
+  ff: {kind: button, doc: ">> fast-forward"}
+  # modes
+  part: button
+  song: button
+  edit: button
+  name: button
+  pgup: {kind: button, doc: PAGE UP (below the display)}
+  pgdn: {kind: button, doc: PAGE DOWN}
+  # functions
+  tempo: button
+  click: button
+  copy: button
+  erase: button
+  loop: button
+  echo: {kind: button, doc: MIDI ECHO}
+  length: button
+  merge: button
+  quant: {kind: button, doc: QUANTIZE}
+  trans: {kind: button, doc: TRANSPOSE}
+  filter: {kind: button, doc: MIDI FILTER}
+  midich: {kind: button, doc: MIDI CHANNEL}
+  clock: button
+  tape: button
+  # tracks and keypad
+  track{1..8}: button
+  digit{0..9}: button
+  plus: button
+  minus: button
+  # the MIDI IN jack, as a keyboard and a few controllers plugged into it
+  midi_note{0..127}: {kind: button, doc: "down = note on (velocity 100), up = note off, on midi_channel"}
+  midi_cc{0..127}: {kind: knob, range: [0, 127], doc: send a control change on midi_channel}
+  midi_program: {kind: knob, range: [0, 127], doc: send a program change on midi_channel}
+  midi_channel: {kind: switch, range: [1, 16], doc: channel used by the virtual keyboard}
+  midi_start: {kind: button, doc: press sends a MIDI Start (0xFA)}
+  midi_stop: {kind: button, doc: press sends a MIDI Stop (0xFC)}
+  midi_continue: {kind: button, doc: press sends a MIDI Continue (0xFB)}
+  midi_clock: {kind: button, doc: press sends one MIDI clock (0xF8)}
+  # the power switch; turning it off and on keeps the battery-backed RAM
+  power: {kind: switch, range: [0, 1]}
+
+observables:
+  lcd.line1: {type: string, doc: top line of the 2x16 display, trimmed}
+  lcd.line2: {type: string, doc: bottom line, trimmed}
+  lcd.raw1: {type: string, doc: top line, all 16 characters}
+  lcd.raw2: {type: string, doc: bottom line, all 16 characters}
+  lcd.cursor: {type: int, doc: "index of the underlined character (0-15 line 1, 16-31 line 2); absent when no cursor is shown"}
+  led.play: bool
+  led.rec: bool
+  led.part: bool
+  led.song: bool
+  led.edit: bool
+  led.loop: bool
+  led.echo: bool
+  led.track.{1..8}: bool
+  midi.clock_count: {type: int, doc: MIDI clocks (0xF8) sent since the fixture was entered}
+  midi.message_count: {type: int, doc: non-clock MIDI messages sent since the fixture was entered}
+  midi.note_count: {type: int, doc: note-on messages sent since the fixture was entered}
+
+fixtures:
+  cold-boot:
+    doc: Power just applied with empty memory; the version splash is still showing.
+  ready:
+    doc: Cold boot, splash over, showing SELECT PART 00 / EMPTY PART.
+  recorded-part:
+    doc: >
+      Ready, then part 00 recorded on track 1 with one note starting at beat 1
+      (velocity 100, about a quarter beat long) and stopped after `beats` beats.
+    params:
+      note: 60
+      beats: 2
+
+events:
+  midi: >
+    A MIDI message sent from MIDI OUT. `status` is one of note_on, note_off,
+    control_change, program_change, channel_pressure, pitch_bend, sysex, clock,
+    start, stop, continue; channel messages carry `channel` (1-16) and their
+    data (`note`, `velocity`, `controller`, `value`, `program`).

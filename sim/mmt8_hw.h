@@ -36,6 +36,8 @@ uint8_t      mmt8_get_transport_state(void);
 /* Keyboard matrix: set/clear a key press (col 0-5, row 0-7) */
 void mmt8_key_press(int col, int row);
 void mmt8_key_release(int col, int row);
+void mmt8_get_key_matrix(uint8_t out[6]);
+void mmt8_set_key_matrix(const uint8_t in[6]);
 
 /* ---- UART (MIDI) emulation ----
  *

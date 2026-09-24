@@ -1,0 +1,30 @@
+spec: mmt8.buttons.loop-echo
+title: LOOP and MIDI ECHO are on/off switches with LEDs
+device: mmt8
+tags: [buttons, mapping, loop, echo]
+description: >
+  Manual 10 and 11: LOOP and MIDI ECHO are simple on/off switches with LED
+  indicators.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, sections 10 and 11
+
+given: ready
+
+cases:
+  - {button: loop}
+  - {button: echo}
+
+steps:
+  - expect:
+      led.${button}: false
+  - press: "${button}"
+  - wait: 100ms
+  - expect:
+      led.${button}: true
+  - press: "${button}"
+  - wait: 100ms
+  - expect:
+      led.${button}: false

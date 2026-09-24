@@ -1,0 +1,54 @@
+spec: mmt8.filter.notes-off
+title: With MIDI FILTER NOTES OFF, notes are not recorded
+device: mmt8
+tags: [filter, record, midi]
+description: >
+  Manual 18: while holding MIDI FILTER, - turns the shown function off; a
+  function that is off is not recorded. With NOTES OFF a recorded part plays
+  back no notes. The count-down is set to 00 first so recording starts
+  immediately.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, sections 18 and 20
+
+given: ready
+
+steps:
+  - hold:
+      keys: filter
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: RECORD MIDI, lcd.line2: "NOTES:       ON"}
+        - press: minus
+        - wait: 100ms
+        - expect: {lcd.line2: "NOTES:       OFF"}
+  - hold:
+      keys: click
+      then:
+        - wait: 100ms
+        - press: pgup
+        - press: pgup
+        - press: pgup
+        - press: digit0
+        - press: digit0
+        - wait: 100ms
+        - expect: {lcd.line2: "COUNT DOWN: 00"}
+  - wait: 100ms
+  - press: rec
+  - wait: 100ms
+  - press: play
+  - wait: 300ms
+  - expect: {lcd.line2: BEAT 001}
+  - down: midi_note60
+  - wait: 200ms
+  - up: midi_note60
+  - wait: 800ms
+  - press: stop
+  - wait: 200ms
+  - expect: {midi.note_count: 0}          # nothing echoed while recording
+  - press: play
+  - wait: 1500ms
+  - expect_events: {contains: [{type: midi, status: start}]}
+  - expect: {led.play: false, midi.note_count: 0}   # and nothing was recorded

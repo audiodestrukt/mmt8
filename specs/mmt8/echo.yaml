@@ -1,0 +1,36 @@
+spec: mmt8.echo.midi-in-to-out
+title: With MIDI ECHO on, MIDI IN is sent to MIDI OUT unchanged; with it off, nothing is
+device: mmt8
+tags: [echo, midi]
+description: >
+  Manual 11: when MIDI ECHO is on, whatever arrives at MIDI IN is sent out of
+  MIDI OUT; when not recording it is transmitted unchanged.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 11
+
+given: ready
+
+steps:
+  - press: midi_note64
+  - wait: 50ms
+  - expect_events: {none: true}
+  - press: echo
+  - wait: 100ms
+  - expect: {led.echo: true}
+  - down: midi_note64
+  - wait: 20ms
+  - up: midi_note64
+  - set: {control: midi_cc7, value: 100}
+  - wait: 50ms
+  - expect_events:
+      - {type: midi, status: note_on, channel: 1, note: 64, velocity: 100}
+      - {type: midi, status: note_off, channel: 1, note: 64}
+      - {type: midi, status: control_change, channel: 1, controller: 7, value: 100}
+  - press: echo
+  - wait: 100ms
+  - press: midi_note64
+  - wait: 50ms
+  - expect_events: {none: true}

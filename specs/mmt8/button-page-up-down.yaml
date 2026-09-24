@@ -1,0 +1,30 @@
+spec: mmt8.buttons.page-up-down
+title: PAGE UP and PAGE DOWN scroll a held button's pages
+device: mmt8
+tags: [buttons, mapping, pages]
+description: >
+  Manual 19: while holding CLOCK, page up and page down scroll through the
+  clock pages (clock source, MIDI CLOCK OUT, AUTO START), each on by default.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 19
+
+given: ready
+
+steps:
+  - hold:
+      keys: clock
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: "CLOCK SOURCE:", lcd.line2: MIDI & INTERNAL}
+        - press: pgup
+        - wait: 100ms
+        - expect: {lcd.line1: MIDI CLOCK OUT, lcd.line2: "ENABLE: ON"}
+        - press: pgup
+        - wait: 100ms
+        - expect: {lcd.line1: AUTO START, lcd.line2: "ENABLE: ON"}
+        - press: pgdn
+        - wait: 100ms
+        - expect: {lcd.line1: MIDI CLOCK OUT}

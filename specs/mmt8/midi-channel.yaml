@@ -1,0 +1,36 @@
+spec: mmt8.midi-channel.assign-track
+title: MIDI CHANNEL assigns a track's output channel; playback follows it
+device: mmt8
+tags: [midi-channel, midi]
+description: >
+  Manual 14: while holding MIDI CHANNEL, track 1's LED lights and the display
+  shows its channel, UNCHANGED by default; +/- or the keypad select 1-16.
+  Notes on that track are then output on the selected channel.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 14
+
+given: recorded-part
+
+steps:
+  - hold:
+      keys: midich
+      then:
+        - wait: 100ms
+        - expect:
+            lcd.line1: SET MIDI CHANNEL
+            lcd.line2: UNCHANGED
+            led.track.1: true
+            led.track.2: false
+        - press: plus
+        - wait: 100ms
+        - expect: {lcd.line2: "01"}
+        - press: plus
+        - wait: 100ms
+        - expect: {lcd.line2: "02"}
+  - wait: 100ms
+  - press: play
+  - wait: 600ms
+  - expect_events: {contains: [{type: midi, status: note_on, channel: 2, note: 60}]}

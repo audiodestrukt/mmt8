@@ -1,0 +1,41 @@
+spec: mmt8.buttons.tracks
+title: Each TRACK button toggles its own LED (pins the track matrix positions)
+device: mmt8
+tags: [buttons, mapping, tracks]
+description: >
+  Manual 2.4: the eight track select LEDs show the tracks that are turned on;
+  when a new part is selected all eight are on. Each track button turns its
+  track off (LED off) and on again, and touches no other track's LED.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 2.4
+
+given: ready
+
+cases:
+  - {n: 1}
+  - {n: 2}
+  - {n: 3}
+  - {n: 4}
+  - {n: 5}
+  - {n: 6}
+  - {n: 7}
+  - {n: 8}
+
+steps:
+  - expect:
+      led.track.${n}: true
+      led.track.1: true
+      led.track.8: true
+  - press: track${n}
+  - wait: 100ms
+  - expect:
+      led.track.${n}: false
+  - press: track${n}
+  - wait: 100ms
+  - expect:
+      led.track.${n}: true
+      led.track.1: true
+      led.track.8: true

@@ -20,14 +20,20 @@ aconnect "Keystation:0" "MMT-8 Simulator:0"      # a keyboard -> MIDI IN
 ```
 
 Status: the firmware boots, passes its own RAM / EPROM / MIDI diagnostics,
-records and plays back MIDI, sends MIDI clock, and every button except EDIT and
-NAME is mapped. A headless mode with scripted button presses, an LCD change log
+records and plays back MIDI, sends MIDI clock, and every button is mapped. A headless mode with scripted button presses, an LCD change log
 and a MIDI byte trace makes it a convenient firmware-debugging rig as well.
 Getting this far required fixing four instruction-semantics bugs in the
 upstream emu8051 core (`MOV direct,@Ri` had its operands swapped, the auxiliary
 carry flag was wrong, `XCHD` never wrote memory, `DA A` carry), now covered by
-`make test`. See [`sim/README.md`](sim/README.md) for usage, options, the
-button matrix, the LED latches and the design notes.
+`make test`.
+
+[`specs/mmt8/`](specs/mmt8/) is a behaviour suite written from the instruction
+manual in the [panelspec](https://github.com/audiodestrukt/hexatrack) format:
+physical inputs in, LCD, LEDs and MIDI out as results. `make spec` runs it
+against the firmware in the simulator, and the same specs will run unchanged
+against a future port through a different adapter. See
+[`sim/README.md`](sim/README.md) for usage, options, the button matrix, the
+LED latches, the spec suite and the design notes.
 
 ## Hardware
 
@@ -69,8 +75,8 @@ The firmware uses P2 as a page selector for 256-byte pages in XDATA, accessed vi
 | Address | Label | Description |
 |---------|-------|-------------|
 | `0xFF00` | `IO_LED_CONTROL` | LED control output latch (HC574); written once at boot |
-| `0xFF02` | `IO_LED_DATA` | Track LEDs 1–8 (bit n = track n+1, active high) |
-| `0xFF04` | `IO_STATUS_LATCH` | Mode/transport LED latch, active low: bit 0 PLAY, 1 RECORD, 2 PART, 3 EDIT (assumed), 4 SONG, 5 MIDI ECHO, 6 LOOP |
+| `0xFF02` | `IO_LED_DATA` | Track LEDs 1–8 (bit n = track n+1, active low) |
+| `0xFF04` | `IO_STATUS_LATCH` | Mode/transport LED latch, active low: bit 0 PLAY, 1 RECORD, 2 PART, 3 EDIT, 4 SONG, 5 MIDI ECHO, 6 LOOP |
 | `0xFF06` | `IO_KEY_COLUMN_SEL` | Keyboard column select (matrix scan) |
 | `0xFF08` | `LCD_CMD_DATA` | HD44780 LCD command/data register |
 | `0xFF0E` | `IO_TRANSPORT_STATE` | Transport state (0=stopped, 1=playing, 2=recording) |
@@ -90,10 +96,12 @@ by pressing every position in the simulator and watching the firmware respond:
 | 2 | TEMPO | `-` | `+` | – | – | – | PAGE UP | PAGE DOWN |
 | 3 | CLICK | 6 | 7 | 8 | 9 | 0 | MIDI CHANNEL | TAPE |
 | 4 | CLOCK | 1 | 2 | 3 | 4 | 5 | SONG | MERGE |
-| 5 | MIDI FILTER | MIDI ECHO | LOOP | QUANTIZE | LENGTH | ? | ? | PART |
+| 5 | MIDI FILTER | MIDI ECHO | LOOP | QUANTIZE | LENGTH | PART | EDIT | NAME |
 
 Power-on combinations checked by the reset code: ERASE + PAGE UP + PAGE DOWN
-clears all memory; LOOP + QUANTIZE enters the diagnostic self-test.
+clears all memory; LOOP + QUANTIZE enters the diagnostic self-test. The three
+unused positions in column 2 do nothing. Every position is pinned by the
+panelspec suite in `specs/mmt8` (see the simulator README).
 
 ## Interrupt Vectors
 

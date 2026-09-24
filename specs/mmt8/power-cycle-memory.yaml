@@ -1,0 +1,30 @@
+spec: mmt8.memory.kept-across-power-cycle
+title: Memory and the selected part survive a power cycle; ERASE + PAGE UP + PAGE DOWN at power-on clears it
+device: mmt8
+tags: [memory, power]
+description: >
+  Manual 2.1: after power-on the sequencer shows the same part as when power
+  was turned off, and the battery-backed memory keeps the parts. Manual 25.2:
+  holding ERASE, PAGE UP and PAGE DOWN while turning power on for 3 seconds
+  clears all memory.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, sections 2.1 and 25.2
+
+given: recorded-part
+
+steps:
+  - expect: {lcd.line2: '" NO PART NAME "'}
+  - set: {control: power, value: 0}
+  - set: {control: power, value: 1}
+  - expect: {lcd.line1: SELECT PART 00, lcd.line2: '" NO PART NAME "'}
+  - hold:
+      keys: [erase, pgup, pgdn]
+      then:
+        - set: {control: power, value: 0}
+        - set: {control: power, value: 1}
+        - wait: 3s
+  - wait: 500ms
+  - expect: {lcd.line1: SELECT PART 00, lcd.line2: '"  EMPTY PART  "'}

@@ -1,0 +1,29 @@
+spec: mmt8.part.power-on
+title: Power-on shows the version, then SELECT PART 00 / EMPTY PART in PART mode
+device: mmt8
+tags: [part, power]
+description: >
+  Manual 2.1-2.2: on power-up the sequencer is in PART mode (PART LED lit) and
+  the display reads SELECT PART 00 with EMPTY PART on the second line when
+  part 00 has not been created. With empty memory it comes up in PART mode.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, sections 2.1 and 2.2
+
+given: cold-boot
+
+steps:
+  - wait: 100ms
+  - expect:
+      lcd.line1: "* ALESIS MMT-8 *"
+      lcd.line2: "* VERSION 1.11 *"
+  - wait: 900ms
+  - expect:
+      lcd.line1: SELECT PART 00
+      lcd.line2: '"  EMPTY PART  "'
+      led.part: true
+      led.song: false
+      led.play: false
+      led.rec: false

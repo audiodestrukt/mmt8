@@ -1,0 +1,30 @@
+spec: mmt8.autolocate.part
+title: Holding >> and entering three digits locates to that beat; STOP/CONTINUE plays from there
+device: mmt8
+tags: [autolocate, transport]
+description: >
+  Manual 26.1 B: when stopped, hold fast-forward or rewind, enter the beat
+  number with three digits, release, then press STOP/CONTINUE to play from
+  the selected beat.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 26.1
+
+given: ready
+
+steps:
+  - hold:
+      keys: ff
+      then:
+        - wait: 100ms
+        - press: digit0
+        - press: digit1
+        - press: digit0
+        - wait: 100ms
+        - expect: {lcd.line2: BEAT 010}
+  - wait: 100ms
+  - press: stop
+  - wait: 100ms
+  - expect: {lcd.line1: PLAYING PART  00, lcd.line2: BEAT 010, led.play: true}

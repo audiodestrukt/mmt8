@@ -9,6 +9,7 @@
 #include "mmt8_hw.h"
 #include "mmt8_gui.h"
 #include "mmt8_midi.h"
+#include "mmt8_keys.h"
 
 #define ROM_SIZE 32768
 #define XDATA_SIZE 65536
@@ -25,6 +26,7 @@
 #define MAX_PRESSES      16
 
 static struct em8051 cpu;
+static unsigned char rom_image[ROM_SIZE];   /* pristine copy, restored on power-on */
 static volatile int running = 1;
 
 static int   opt_headless;
@@ -32,6 +34,7 @@ static int   opt_no_midi;
 static int   opt_trace;
 static int   opt_lcd_log;
 static int   opt_loopback;
+static int   opt_script;
 static long  opt_exit_after_ms = -1;
 static long  opt_hold_ms = 100;
 static const char *opt_midi_in;
@@ -41,12 +44,14 @@ static struct { int col, row; long at_ms; } presses[MAX_PRESSES];
 static int num_presses;
 
 static void on_sigint(int sig) { (void)sig; running = 0; }
+static void log_lcd_changes(uint64_t emu_ms);
 
 static void usage(const char *prog)
 {
     fprintf(stderr,
         "Usage: %s [options] [firmware.bin]\n"
         "  -H, --headless        run without the SDL window\n"
+        "  -S, --script          headless, no wall clock: read commands from stdin (see README)\n"
         "  -n, --no-midi         do not create ALSA sequencer MIDI ports\n"
         "  -t, --midi-trace      print MIDI bytes in/out to stderr\n"
         "  -l, --lcd-log         print the LCD contents whenever they change\n"
@@ -69,7 +74,8 @@ static int load_firmware(const char *path)
         fprintf(stderr, "Cannot open firmware: %s\n", path);
         return -1;
     }
-    size_t n = fread(cpu.mCodeMem, 1, ROM_SIZE, f);
+    memset(rom_image, 0, ROM_SIZE);
+    size_t n = fread(rom_image, 1, ROM_SIZE, f);
     fclose(f);
     if (n != ROM_SIZE) {
         fprintf(stderr, "Warning: firmware is %zu bytes (expected %d)\n", n, ROM_SIZE);
@@ -102,6 +108,121 @@ static void dump_lcd(uint64_t total_cycles)
     printf("  PC=0x%04X LED_CTRL=0x%02X LED_DATA=0x%02X STATUS=0x%02X TRANSPORT=0x%02X\n",
            cpu.mPC, mmt8_get_led_control(), mmt8_get_led_data(),
            mmt8_get_status_latch(), mmt8_get_transport_state());
+}
+
+/* Cold (wipe RAM) or warm (keep RAM, like the memory battery) power-on.
+ * Pressed keys survive, so power-on button combinations can be scripted. */
+static void power_on(int cold)
+{
+    uint8_t keys[6];
+    mmt8_get_key_matrix(keys);
+    if (cold) {
+        memset(cpu.mExtData, 0, XDATA_SIZE);
+        memset(cpu.mUpperData, 0, 128);
+    }
+    reset(&cpu, cold);              /* a wipe also clears code memory */
+    memcpy(cpu.mCodeMem, rom_image, ROM_SIZE);
+    mmt8_hw_init();
+    mmt8_hw_install(&cpu);
+    mmt8_set_key_matrix(keys);
+}
+
+/* ---- Script mode -------------------------------------------------------
+ *
+ * Deterministic, faster than real time, no window and no ALSA. One command
+ * per line on stdin, exactly one response line on stdout per command:
+ *
+ *   wait MS            run MS milliseconds of emulated time      -> ok
+ *   press NAME|C,R     press a front-panel key (see mmt8_keys.c) or matrix position -> ok
+ *   release NAME       release it                               -> ok
+ *   midi HH HH ..      feed bytes into MIDI IN                   -> ok
+ *   reset [cold|warm]  power-cycle; warm keeps RAM (default cold)-> ok
+ *   lcd                -> lcd <32 hex bytes: line 1 then line 2> <cursor addr> <cursor on> <display on>
+ *   leds               -> leds <led data hex> <status latch hex>
+ *   midiout            -> midiout <hex bytes sent since last call>
+ *   quit               -> ok, then exit
+ *
+ * Unknown commands or keys answer "err <message>".
+ */
+#define TXCAP_SIZE (1 << 20)
+static uint8_t txcap[TXCAP_SIZE];
+static size_t  txcap_len;
+static uint64_t script_cycles;
+
+static void run_cycles(uint64_t n)
+{
+    uint8_t b;
+    for (uint64_t i = 0; i < n; i++) {
+        tick(&cpu);
+        mmt8_hw_tick(&cpu);
+        while (mmt8_uart_tx_pop(&b)) {
+            if (opt_trace) fprintf(stderr, "MIDI OUT %02X\n", b);
+            if (opt_loopback) mmt8_uart_rx_push(b);
+            if (txcap_len < TXCAP_SIZE) txcap[txcap_len++] = b;
+        }
+    }
+    script_cycles += n;
+}
+
+static int script_mode(void)
+{
+    char line[4096];
+    fflush(stdout);
+    while (fflush(stdout), fgets(line, sizeof(line), stdin)) {
+        char cmd[32] = "", arg[64] = "";
+        char *rest = line;
+        int n = sscanf(line, "%31s %63s", cmd, arg);
+        if (n < 1) continue;
+        if (strcmp(cmd, "wait") == 0) {
+            long ms = atol(arg);
+            if (n < 2 || ms < 0) { printf("err wait needs a non-negative ms count\n"); continue; }
+            run_cycles((uint64_t)ms * 1000ULL);
+            if (opt_lcd_log) log_lcd_changes(script_cycles / 1000);
+            printf("ok\n");
+        } else if (strcmp(cmd, "press") == 0 || strcmp(cmd, "release") == 0) {
+            int col, row;
+            const mmt8_key_t *k = n >= 2 ? mmt8_key_find(arg) : NULL;
+            if (k) { col = k->col; row = k->row; }
+            else if (n < 2 || sscanf(arg, "%d,%d", &col, &row) != 2 ||
+                     col < 0 || col > 5 || row < 0 || row > 7) {
+                printf("err unknown key '%s'\n", arg); continue;
+            }
+            if (cmd[0] == 'p') mmt8_key_press(col, row);
+            else               mmt8_key_release(col, row);
+            printf("ok\n");
+        } else if (strcmp(cmd, "midi") == 0) {
+            rest = line + 4;
+            unsigned v; int used, count = 0;
+            while (sscanf(rest, " %x%n", &v, &used) == 1) {
+                mmt8_uart_rx_push((uint8_t)v);
+                rest += used; count++;
+            }
+            printf("ok %d\n", count);
+        } else if (strcmp(cmd, "reset") == 0) {
+            power_on(!(n >= 2 && strcmp(arg, "warm") == 0));
+            txcap_len = 0;
+            printf("ok\n");
+        } else if (strcmp(cmd, "lcd") == 0) {
+            lcd_state_t *lcd = mmt8_get_lcd();
+            printf("lcd ");
+            for (int l = 0; l < 2; l++)
+                for (int i = 0; i < 16; i++) printf("%02X", lcd->ddram[l][i]);
+            printf(" %d %d %d\n", lcd->cursor_addr, lcd->cursor_on, lcd->display_on);
+        } else if (strcmp(cmd, "leds") == 0) {
+            printf("leds %02X %02X\n", mmt8_get_led_data(), mmt8_get_status_latch());
+        } else if (strcmp(cmd, "midiout") == 0) {
+            printf("midiout");
+            for (size_t i = 0; i < txcap_len; i++) printf(" %02X", txcap[i]);
+            printf("\n");
+            txcap_len = 0;
+        } else if (strcmp(cmd, "quit") == 0) {
+            printf("ok\n");
+            break;
+        } else {
+            printf("err unknown command '%s'\n", cmd);
+        }
+    }
+    return 0;
 }
 
 /* Print the LCD whenever its visible contents change (--lcd-log). */
@@ -163,6 +284,7 @@ static int parse_args(int argc, char *argv[], const char **rom_path)
 {
     static const struct option longopts[] = {
         {"headless",   no_argument,       0, 'H'},
+        {"script",     no_argument,       0, 'S'},
         {"no-midi",    no_argument,       0, 'n'},
         {"midi-trace", no_argument,       0, 't'},
         {"lcd-log",    no_argument,       0, 'l'},
@@ -177,9 +299,10 @@ static int parse_args(int argc, char *argv[], const char **rom_path)
         {0, 0, 0, 0}
     };
     int c;
-    while ((c = getopt_long(argc, argv, "HntlLi:o:p:x:d:s:h", longopts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "HSntlLi:o:p:x:d:s:h", longopts, NULL)) != -1) {
         switch (c) {
         case 'H': opt_headless = 1; break;
+        case 'S': opt_script = 1; opt_headless = 1; opt_no_midi = 1; break;
         case 'n': opt_no_midi = 1; break;
         case 't': opt_trace = 1; break;
         case 'l': opt_lcd_log = 1; break;
@@ -260,17 +383,14 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    memset(cpu.mExtData, 0, XDATA_SIZE);
-    memset(cpu.mUpperData, 0, 128);
-
-    reset(&cpu, 1);
-
-    /* Install hardware callbacks */
-    mmt8_hw_install(&cpu);
-
     /* Load firmware */
     if (load_firmware(rom_path) < 0)
         return 1;
+
+    power_on(1);
+
+    if (opt_script)
+        return script_mode();
 
     printf("MMT-8 Simulator starting...%s\n", opt_headless ? " (headless)" : "");
     printf("CPU reset, PC=0x%04X\n", cpu.mPC);

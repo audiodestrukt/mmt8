@@ -1,0 +1,36 @@
+spec: mmt8.buttons.transport
+title: RECORD arms and lights, STOP disarms; << and >> move the beat while stopped
+device: mmt8
+tags: [buttons, mapping, transport]
+description: >
+  Manual 3.1-3.2: pressing RECORD lights the RECORD LED (track 1 is selected
+  on an empty part) and it stays lit after release; STOP/CONTINUE while
+  armed turns it off. Manual 2.5-2.6: when a part is not playing, >> and <<
+  advance and retreat the displayed beat.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, sections 2.5, 2.6, 3.1 and 3.2
+
+given: ready
+
+steps:
+  - press: rec
+  - wait: 100ms
+  - expect: {led.rec: true}
+  - press: stop
+  - wait: 100ms
+  - expect: {led.rec: false, lcd.line1: SELECT PART 00}
+  - hold:
+      keys: ff
+      then:
+        - wait: 500ms
+        - expect: {lcd.line2: BEAT 002}
+        - wait: 1s
+        - expect: {lcd.line2: {$in: [BEAT 008, BEAT 009, BEAT 010]}}   # speeds up while held
+  - hold:
+      keys: rew
+      then:
+        - wait: 2500ms
+        - expect: {lcd.line2: BEAT 000}

@@ -1,0 +1,59 @@
+spec: mmt8.length.set-with-keypad
+title: LENGTH shows the part length; three digits plus RECORD set a new one, +/- step it
+device: mmt8
+tags: [length, keypad]
+description: >
+  Manual 4: while holding LENGTH the display shows the current length (000
+  for an empty part). A three digit number from the keypad, or +/-, chooses a
+  new length that is only entered when RECORD is pressed while still holding
+  LENGTH (the display reads LENGTH CHANGED until RECORD is released).
+  Releasing LENGTH before RECORD discards the entry.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 4
+
+given: recorded-part
+
+steps:
+  - hold:
+      keys: length
+      then:
+        - wait: 100ms
+        - expect: {lcd.line1: PART 00, lcd.line2: LENGTH 002 BEATS}
+        - press: digit0
+        - press: digit0
+        - press: digit8
+        - wait: 100ms
+        - expect: {lcd.line2: LENGTH 008 BEATS}
+  - hold:
+      keys: length
+      then:
+        - wait: 100ms
+        - expect: {lcd.line2: LENGTH 002 BEATS}          # discarded without RECORD
+        - press: digit0
+        - press: digit0
+        - press: digit4
+        - hold:
+            keys: rec
+            then:
+              - wait: 100ms
+              - expect: {lcd.line1: LENGTH CHANGED}
+        - wait: 100ms
+        - expect: {lcd.line2: LENGTH 004 BEATS}
+  - hold:
+      keys: length
+      then:
+        - wait: 100ms
+        - expect: {lcd.line2: LENGTH 004 BEATS}
+        - press: minus
+        - wait: 100ms
+        - expect: {lcd.line2: LENGTH 003 BEATS}
+        - press: plus
+        - press: plus
+        - wait: 100ms
+        - expect: {lcd.line2: LENGTH 005 BEATS}
+  - press: play
+  - wait: 2300ms
+  - expect: {led.play: false}     # 4 beats = 2 s, so the part has ended (the +/- change was not entered)

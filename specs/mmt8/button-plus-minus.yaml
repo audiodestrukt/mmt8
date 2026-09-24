@@ -1,0 +1,29 @@
+spec: mmt8.buttons.plus-minus
+title: "+ and - step the part number, wrapping between 99 and 00"
+device: mmt8
+tags: [buttons, mapping, part]
+description: >
+  Manual 2.3: pressing the +/- buttons immediately selects the next part
+  number, with the numbers looping past 99 to 00 and looping down from 00
+  to 99.
+provenance:
+  status: verified
+  verified:
+    - {device: mmt8, firmware: "1.11", date: 2026-09-24, method: firmware-emulator}
+  source: MMT-8 Instruction Manual, section 2.3
+
+given: ready
+
+steps:
+  - press: plus
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT PART 01}
+  - press: minus
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT PART 00}
+  - press: minus
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT PART 99}
+  - press: plus
+  - wait: 100ms
+  - expect: {lcd.line1: SELECT PART 00}
