@@ -2,3 +2,7 @@
 sim/mmt8sim
 sim/tests/cputest
 __pycache__/
+tools/
+build/
+firmware/*.obj
+firmware/*.lst

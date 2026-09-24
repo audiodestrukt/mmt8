@@ -213,6 +213,24 @@ Key 8051-specific idioms that will need adaptation:
 
 6. **`undefined1` / `undefined2`** — These are Ghidra placeholder types for unresolved data types. Treat `undefined1` as `uint8_t` and `undefined2` as `uint16_t` (usually a CODE or XDATA address).
 
+## Rebuilding the Firmware
+
+The disassembly round-trips. `firmware/mmt8.asm` is the listing as
+assemblable source (as31 syntax, produced by `scripts/listing2asm.py`), and
+
+```
+make firmware      # assemble it -> build/mmt8.hex, build/mmt8.bin, byte-compare with the ROM
+make roundtrip     # regenerate the source from the dis51 listing first, then the same
+```
+
+builds a 32 KB image that is byte-identical to the EPROM dump, and the
+simulator boots it (`sim/mmt8sim build/mmt8.bin`). The assembler is
+[as31](https://github.com/kjs452/as31), fetched and built into `tools/` by
+`scripts/get-as31.sh` with a one-line fix for 64-bit hosts (its
+address-overlap bitfield used a 32-bit shift). This is the path for
+modifying the original firmware: edit `firmware/mmt8.asm`, `make firmware`,
+run it in the simulator against the spec suite, then burn `build/mmt8.hex`.
+
 ## Repository Layout
 
 | File | Description |
@@ -220,6 +238,8 @@ Key 8051-specific idioms that will need adaptation:
 | `sim/` | Hardware simulator (see above and `sim/README.md`) |
 | `firmware/alesis_mmt8_v111.bin` | Original firmware binary (32KB, 27C256 EPROM dump) |
 | `firmware/alesis_mmt8_v111.hex` | Intel HEX format conversion of the binary |
+| `firmware/mmt8.asm` | The disassembly as assemblable as31 source; `make firmware` rebuilds the identical ROM |
+| `scripts/listing2asm.py`, `scripts/get-as31.sh` | Listing-to-source converter and the assembler bootstrap |
 | `alesis_mmt8_v111.asm` | dis51 assembly listing (29,208 lines) |
 | `mmt8_decompiled.c` | Annotated Ghidra decompiled C pseudocode (7,924 lines, 108 functions) |
 | `mmt8_functions.txt` | Function list with addresses, sizes, and callers |
