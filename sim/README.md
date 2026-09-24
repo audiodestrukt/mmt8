@@ -57,7 +57,12 @@ make spec     # from the repo root: runs the behaviour specs in specs/mmt8 (see 
 ./mmt8sim /path/to/alesis_mmt8_v111.bin  # explicit path
 ```
 
-Click the buttons with the mouse. Press **Escape** or close the window to exit.
+Click the buttons with the mouse, or use the keyboard: every button has a
+shortcut shown in its corner (Space = PLAY, S = STOP, R = REC, E = ERASE,
+C = COPY, G = LENGTH, arrows = << / >>, F1–F8 = tracks, digits, `=` / `-`,
+and so on). A key held on the keyboard stays down while you click, which is
+how two-button gestures like ERASE + RECORD or RECORD + LENGTH are made.
+Press **Escape** or close the window to exit.
 
 On startup the simulator registers an ALSA sequencer client named
 `MMT-8 Simulator` with two ports:

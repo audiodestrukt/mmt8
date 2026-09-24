@@ -49,7 +49,8 @@ typedef struct {
     const char *label;
     int col;          /* keyboard matrix column */
     int row;          /* keyboard matrix row */
-    int pressed;
+    int pressed;      /* by the mouse */
+    int key_held;     /* by the keyboard */
     int led_src;      /* LED_NONE, LED_TRACK (led_data latch) or LED_STATUS (status latch); both active low */
     int led_bit;      /* bit number within that latch */
     int led_red;      /* 1 = red LED (REC), else green */
@@ -180,6 +181,52 @@ static void init_buttons(void)
     add_button(x, y, bw, bh, "REC", "REC", LED_STATUS, 1, 1);
 }
 
+/*
+ * Keyboard shortcuts. Holding a key holds the button, independently of the
+ * mouse, so two-button gestures (ERASE + RECORD, RECORD + LENGTH, ...) are
+ * possible. Escape quits (handled in main.c).
+ */
+static const struct { SDL_Keycode sym; const char *key; const char *hint; } shortcuts[] = {
+    { SDLK_SPACE,    "PLAY",   "Spc" }, { SDLK_s,        "STOP",   "S" },
+    { SDLK_r,        "REC",    "R" },   { SDLK_LEFT,     "REW",    "<-" },  { SDLK_RIGHT,    "FF",     "->" },
+    { SDLK_p,        "PART",   "P" },   { SDLK_o,        "SONG",   "O" },   { SDLK_d,        "EDIT",   "D" },
+    { SDLK_n,        "NAME",   "N" },   { SDLK_PAGEUP,   "PGUP",   "PgUp" }, { SDLK_PAGEDOWN, "PGDN",  "PgDn" },
+    { SDLK_t,        "TEMPO",  "T" },   { SDLK_k,        "CLICK",  "K" },   { SDLK_c,        "COPY",   "C" },
+    { SDLK_e,        "ERASE",  "E" },   { SDLK_l,        "LOOP",   "L" },   { SDLK_h,        "ECHO",   "H" },
+    { SDLK_g,        "LENGTH", "G" },   { SDLK_m,        "MERGE",  "M" },   { SDLK_q,        "QUANT",  "Q" },
+    { SDLK_x,        "TRANS",  "X" },   { SDLK_f,        "FILTER", "F" },   { SDLK_i,        "MIDICH", "I" },
+    { SDLK_j,        "CLOCK",  "J" },   { SDLK_y,        "TAPE",   "Y" },
+    { SDLK_F1, "T1", "F1" }, { SDLK_F2, "T2", "F2" }, { SDLK_F3, "T3", "F3" }, { SDLK_F4, "T4", "F4" },
+    { SDLK_F5, "T5", "F5" }, { SDLK_F6, "T6", "F6" }, { SDLK_F7, "T7", "F7" }, { SDLK_F8, "T8", "F8" },
+    { SDLK_0, "0", "0" }, { SDLK_1, "1", "1" }, { SDLK_2, "2", "2" }, { SDLK_3, "3", "3" }, { SDLK_4, "4", "4" },
+    { SDLK_5, "5", "5" }, { SDLK_6, "6", "6" }, { SDLK_7, "7", "7" }, { SDLK_8, "8", "8" }, { SDLK_9, "9", "9" },
+    { SDLK_KP_0, "0", NULL }, { SDLK_KP_1, "1", NULL }, { SDLK_KP_2, "2", NULL }, { SDLK_KP_3, "3", NULL },
+    { SDLK_KP_4, "4", NULL }, { SDLK_KP_5, "5", NULL }, { SDLK_KP_6, "6", NULL }, { SDLK_KP_7, "7", NULL },
+    { SDLK_KP_8, "8", NULL }, { SDLK_KP_9, "9", NULL },
+    { SDLK_EQUALS, "PLUS", "=" }, { SDLK_KP_PLUS, "PLUS", NULL }, { SDLK_MINUS, "MINUS", "-" }, { SDLK_KP_MINUS, "MINUS", NULL },
+};
+#define NUM_SHORTCUTS (int)(sizeof(shortcuts) / sizeof(shortcuts[0]))
+
+static button_t *find_button_by_key(const char *key)
+{
+    const mmt8_key_t *k = mmt8_key_find(key);
+    if (!k) return NULL;
+    for (int i = 0; i < num_buttons; i++)
+        if (buttons[i].col == k->col && buttons[i].row == k->row)
+            return &buttons[i];
+    return NULL;
+}
+
+static const char *hint_for(const button_t *b)
+{
+    for (int i = 0; i < NUM_SHORTCUTS; i++) {
+        const mmt8_key_t *k = mmt8_key_find(shortcuts[i].key);
+        if (k && k->col == b->col && k->row == b->row && shortcuts[i].hint)
+            return shortcuts[i].hint;
+    }
+    return NULL;
+}
+
 /* Find which button contains point (x,y) */
 static button_t *find_button(int x, int y)
 {
@@ -245,7 +292,7 @@ static void render_buttons(void)
         button_t *b = &buttons[i];
 
         /* Button fill */
-        if (b->pressed)
+        if (b->pressed || b->key_held)
             SDL_SetRenderDrawColor(renderer, COL_BTN_PR_R, COL_BTN_PR_G, COL_BTN_PR_B, 255);
         else
             SDL_SetRenderDrawColor(renderer, COL_BTN_R, COL_BTN_G, COL_BTN_B, 255);
@@ -264,6 +311,20 @@ static void render_buttons(void)
                 int tx = b->rect.x + (b->rect.w - surf->w) / 2;
                 int ty = b->rect.y + (b->rect.h - surf->h) / 2;
                 SDL_Rect dst = {tx, ty, surf->w, surf->h};
+                SDL_RenderCopy(renderer, tex, NULL, &dst);
+                SDL_DestroyTexture(tex);
+                SDL_FreeSurface(surf);
+            }
+        }
+
+        /* Keyboard shortcut hint in the corner */
+        const char *hint = hint_for(b);
+        if (font_small && hint) {
+            SDL_Color dim = {140, 140, 150, 255};
+            SDL_Surface *surf = TTF_RenderText_Blended(font_small, hint, dim);
+            if (surf) {
+                SDL_Texture *tex = SDL_CreateTextureFromSurface(renderer, surf);
+                SDL_Rect dst = {b->rect.x + b->rect.w - surf->w - 2, b->rect.y + 1, surf->w, surf->h};
                 SDL_RenderCopy(renderer, tex, NULL, &dst);
                 SDL_DestroyTexture(tex);
                 SDL_FreeSurface(surf);
@@ -400,18 +461,33 @@ int gui_init(void)
 
 void gui_handle_event(SDL_Event *ev)
 {
+    if (ev->type == SDL_KEYDOWN || ev->type == SDL_KEYUP) {
+        if (ev->key.repeat) return;
+        for (int i = 0; i < NUM_SHORTCUTS; i++) {
+            if (shortcuts[i].sym != ev->key.keysym.sym) continue;
+            button_t *b = find_button_by_key(shortcuts[i].key);
+            if (!b) return;
+            if (ev->type == SDL_KEYDOWN) {
+                if (!b->key_held) { b->key_held = 1; if (!b->pressed) mmt8_key_press(b->col, b->row); }
+            } else {
+                if (b->key_held) { b->key_held = 0; if (!b->pressed) mmt8_key_release(b->col, b->row); }
+            }
+            return;
+        }
+        return;
+    }
     if (ev->type == SDL_MOUSEBUTTONDOWN) {
         button_t *b = find_button(ev->button.x, ev->button.y);
         if (b) {
             b->pressed = 1;
-            mmt8_key_press(b->col, b->row);
+            if (!b->key_held) mmt8_key_press(b->col, b->row);
         }
     } else if (ev->type == SDL_MOUSEBUTTONUP) {
-        /* Release all pressed buttons */
+        /* Release all mouse-pressed buttons (keys held on the keyboard stay down) */
         for (int i = 0; i < num_buttons; i++) {
             if (buttons[i].pressed) {
                 buttons[i].pressed = 0;
-                mmt8_key_release(buttons[i].col, buttons[i].row);
+                if (!buttons[i].key_held) mmt8_key_release(buttons[i].col, buttons[i].row);
             }
         }
     }
